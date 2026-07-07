@@ -1,0 +1,57 @@
+﻿/* Shared playing cards */
+.card {
+  width: 100%; height: 100%;
+  aspect-ratio: 44 / 62;
+  border-radius: 7px;
+  border: 1px solid rgba(20, 20, 20, 0.18);
+  background: linear-gradient(180deg, #fffaf0 0%, #efe6d1 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3px 4px;
+  font-weight: 600;
+  position: relative;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  cursor: default;
+}
+.card.small { border-radius: 5px; padding: 2px 3px; }
+.card.red { color: var(--red); }
+.card.black { color: var(--black); }
+.card.joker { background: linear-gradient(135deg, #fff8e1, #ffe082); color: #b71c1c; }
+.card.back {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(212,175,55,0.25), transparent 38%),
+    repeating-linear-gradient(45deg, #642818, #642818 4px, #873b23 4px, #873b23 8px);
+  border: 1px solid var(--gold);
+}
+.card.back::after {
+  content: "\724c";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--gold); font-size: 12px; font-weight: 700;
+}
+.card .rank { font-size: 13px; line-height: 1; font-weight: 700; }
+.card .suit { font-size: 11px; line-height: 1; align-self: flex-end; }
+.card .center-suit {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 20px; opacity: 0.75; line-height: 1;
+}
+.card.small .rank { font-size: 9px; }
+.card.small .suit { font-size: 8px; }
+.card.small .center-suit { font-size: 14px; }
+.card.small.back::after { font-size: 9px; }
+.card.selected { transform: translateY(-8px); box-shadow: 0 6px 16px rgba(212, 175, 55, 0.5); border: 2px solid var(--gold); }
+.card.head-mark::before {
+  content: "\5934"; position: absolute; top: -7px; right: -3px;
+  background: var(--gold); color: #000; font-size: 8px;
+  padding: 1px 4px; border-radius: 5px; font-weight: 700;
+}
+.card.tail-mark::before {
+  content: "\5c3e"; position: absolute; top: -7px; right: -3px;
+  background: #888; color: #fff; font-size: 8px;
+  padding: 1px 4px; border-radius: 5px; font-weight: 700;
+}
+.my-hand.selectable .card { cursor: pointer; }
+.my-hand.selectable .card:hover { transform: translateY(-4px); }

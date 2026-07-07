@@ -1,0 +1,213 @@
+:root {
+  --bg-deep: #0d2818;
+  --bg-table: #1a4d2e;
+  --bg-table-2: #154028;
+  --gold: #d4af37;
+  --gold-soft: #b8941f;
+  --red: #c8102e;
+  --black: #1a1a1a;
+  --white: #f8f4e6;
+  --text: #f8f4e6;
+  --text-dim: #a8b8a8;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-deep);
+  color: var(--text);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* ========== 通用 ========== */
+.btn {
+  padding: 8px 18px;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 90px;
+}
+.btn:hover:not(:disabled) {
+  background: rgba(212, 175, 55, 0.15);
+  border-color: var(--gold);
+}
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-primary {
+  background: linear-gradient(180deg, var(--gold), var(--gold-soft));
+  color: #1a1a1a;
+  border-color: var(--gold);
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #e6c247, var(--gold));
+}
+.btn-small {
+  padding: 5px 12px;
+  font-size: 12px;
+  min-width: auto;
+}
+.btn-danger {
+  background: rgba(200, 16, 46, 0.15);
+  border-color: rgba(200, 16, 46, 0.4);
+  color: #ff6b6b;
+}
+.btn-danger:hover { background: rgba(200, 16, 46, 0.3); }
+
+/* ========== 登录/大厅 通用 ========== */
+.auth-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  overflow: auto;
+}
+.auth-wrap { width: 100%; max-width: 420px; }
+.auth-card, .lobby-card {
+  background: linear-gradient(180deg, #1a2e1f, #0d2818);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.auth-logo {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 12px;
+  color: var(--gold);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.auth-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-bottom: 24px;
+  letter-spacing: 1px;
+}
+
+/* ========== 表单 ========== */
+.form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.form-row label { font-size: 13px; color: var(--text-dim); }
+.form-row input, .form-row select {
+  padding: 10px 14px;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-row input:focus, .form-row select:focus { border-color: var(--gold); }
+.form-row select { cursor: pointer; }
+.form-row select option { background: #1a2e1f; color: var(--text); }
+.auth-error { color: var(--red); font-size: 12px; min-height: 16px; text-align: center; margin-bottom: 8px; }
+.auth-hint {
+  margin-top: 20px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.6;
+  padding-top: 16px;
+  border-top: 1px solid rgba(212, 175, 55, 0.15);
+}
+
+/* ========== 模态框 ========== */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-content {
+  background: linear-gradient(180deg, #1a2e1f, #0d2818);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+}
+.modal-title { font-size: 18px; font-weight: 600; color: var(--gold); margin-bottom: 16px; }
+.modal-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5; }
+.modal-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+
+/* ========== 大厅 ========== */
+.lobby-card { padding: 0; overflow: hidden; }
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+}
+.lobby-header .auth-logo { font-size: 24px; letter-spacing: 8px; margin: 0; }
+.lobby-user { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--gold); }
+.lobby-user .avatar {
+  width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
+  border: 2px solid rgba(212, 175, 55, 0.4);
+}
+.lobby-user .avatar-placeholder {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(212, 175, 55, 0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; color: var(--gold);
+  border: 2px solid rgba(212, 175, 55, 0.4);
+}
+.lobby-body { padding: 24px; }
+.lobby-actions { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; }
+.lobby-actions .btn { flex: 1; max-width: 180px; padding: 12px 0; font-size: 16px; }
+.room-list-section { border-top: 1px solid rgba(212, 175, 55, 0.15); padding-top: 16px; }
+.room-list-title { font-size: 14px; color: var(--gold); font-weight: 600; margin-bottom: 12px; }
+.room-list { display: flex; flex-direction: column; gap: 8px; }
+.room-list-empty { text-align: center; color: var(--text-dim); font-size: 13px; padding: 20px 0; }
+.room-card {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.room-card:hover { border-color: var(--gold); background: rgba(212, 175, 55, 0.1); }
+.room-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.room-card-name { font-size: 15px; font-weight: 600; }
+.room-card-code { font-size: 12px; color: var(--gold); font-family: monospace; }
+.room-card-info { display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); flex-wrap: wrap; }
+
+
+/* ========== 头像上传 ========== */
+.avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+.avatar-upload .avatar-preview {
+  width: 64px; height: 64px; border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--gold);
+  background: rgba(212, 175, 55, 0.1);
+}
+.avatar-upload .avatar-preview.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 700; color: var(--gold);
+}
+
