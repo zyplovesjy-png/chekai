@@ -81,7 +81,7 @@ export function PlayerSeat({
             <strong>{player?.pot ?? seat.buyIn}</strong>
           </div>
           {gameStarted && !!player?.committed && player.committed > 0 && (
-            <div className="seat-bet-chip" aria-label={`${seat.nickname}\u5df2\u4e0b\u6ce8${player.committed}`}>
+            <div className="seat-bet-chip" aria-label={`${seat.nickname}喊价${player.committed}`}>
               <span className="chip-dot" />
               <span>{player.committed}</span>
             </div>
@@ -115,7 +115,7 @@ export function PlayerSeat({
             <span className="seat-score">{player?.pot ?? seat.buyIn}</span>
           </div>
           {gameStarted && !!player?.committed && player.committed > 0 && (
-            <div className="seat-bet-chip" aria-label={`${seat.nickname}已下注${player.committed}`}>
+            <div className="seat-bet-chip" aria-label={`${seat.nickname}喊价${player.committed}`}>
               <span className="chip-dot" />
               <span>{player.committed}</span>
             </div>

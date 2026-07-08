@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿/* ========== 扯旋服务端游戏引擎 ========== */
+﻿/* ========== 扯旋服务端游戏引擎 ========== */
 
 /* ----- 牌组（32张）----- */
 const DECK = [
@@ -144,7 +144,8 @@ function compareCombo(a, b) {
   if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
   if (a.level !== b.level) return a.level - b.level;
   if (a.level === 0 && a.sub === 0 && b.sub === 0) return 0;
-  if (a.sub !== b.sub) return a.sub - b.sub;
+  // sub 越小越强（天官九 sub1 > 地官九 sub2；天一对 sub1 > 人一对 sub3）
+  if (a.sub !== b.sub) return b.sub - a.sub;
   if (a.maxO !== b.maxO) return a.maxO - b.maxO;
   return a.minO - b.minO;
 }
@@ -215,6 +216,7 @@ class GameEngine {
         hand: [],
         committed: 0,
         roundCommitted: 0,
+        foldPaid: 0,
         folded: false,
         eliminated: false,
         matched: false,
@@ -226,6 +228,8 @@ class GameEngine {
         sanhuaCards: [],
         sanhuaRevealLocked: false,
         lastDelta: 0,
+        pendingBuyIn: 0,
+        totalBuyIn: s.buyIn || config.firstPot,
         seat: seatIds[idx],
       });
     });
@@ -275,7 +279,8 @@ class GameEngine {
     return this.players.find(p => p.username === username);
   }
 
-  chargeToPot(player, amount, options = {}) {
+  // 底注 / 芒果等直接进底池（不算喊价）
+  chargeToPot(player, amount) {
     const requested = Math.max(0, Math.floor(Number(amount) || 0));
     const paid = Math.min(player.pot, requested);
     if (paid <= 0) return 0;
@@ -284,17 +289,60 @@ class GameEngine {
     player.lastDelta -= paid;
     this.state.potPi += paid;
 
-    if (options.countsForBettingRound) {
-      player.committed += paid;
-      player.roundCommitted += paid;
-      this.state.roundHadBet = true;
-    }
-
     if (player.pot <= 0) {
       player.allIn = true;
     }
 
     return paid;
+  }
+
+  // 喊价：筹码从簸簸划出但不进底池（预扣），committed 为整局累计总额
+  raiseCommitment(player, targetAmount) {
+    const target = normalizeBetAmount(targetAmount);
+    if (target === null) return null;
+    if (target < player.committed) return null;
+    const delta = target - player.committed;
+    if (delta > player.pot) return null;
+    if (delta > 0) {
+      player.pot -= delta;
+      player.lastDelta -= delta;
+      player.committed += delta;
+      this.state.roundHadBet = true;
+    }
+    player.roundCommitted = player.committed;
+    if (player.pot <= 0) {
+      player.allIn = true;
+    }
+    player.actedThisRound = true;
+    player.rested = false;
+    player.matched = true;
+    return delta;
+  }
+
+  // 弃牌：把当前喊价支付进底池（预扣已从簸簸划出，此处转入 potPi）
+  payCommitmentToPot(player) {
+    const paid = Math.max(0, player.committed || 0);
+    if (paid <= 0) return 0;
+    this.state.potPi += paid;
+    player.foldPaid = (player.foldPaid || 0) + paid;
+    player.committed = 0;
+    player.roundCommitted = 0;
+    return paid;
+  }
+
+  // 退还喊价预扣（作废 / 亮三花 / 揍芒赢家）
+  refundCommitment(player) {
+    const refund = Math.max(0, player.committed || 0);
+    if (refund <= 0) {
+      player.committed = 0;
+      player.roundCommitted = 0;
+      return 0;
+    }
+    player.pot += refund;
+    player.lastDelta += refund;
+    player.committed = 0;
+    player.roundCommitted = 0;
+    return refund;
   }
 
   resetBettingRound(minBet) {
@@ -303,7 +351,8 @@ class GameEngine {
     s.betStarted = false;
     s.minBet = Math.max(MANGO_BASE, Math.floor(minBet || MANGO_BASE));
     this.players.forEach(p => {
-      p.roundCommitted = 0;
+      // 保留整局 committed；roundCommitted 同步为累计额供 UI
+      p.roundCommitted = p.committed;
       p.matched = !!p.allIn;
       p.rested = false;
       p.actedThisRound = !!p.allIn;
@@ -311,17 +360,7 @@ class GameEngine {
   }
 
   placeBetToTarget(player, targetAmount) {
-    const target = normalizeBetAmount(targetAmount);
-    if (target === null) return null;
-    if (target < player.roundCommitted) return null;
-    const delta = target - player.roundCommitted;
-    if (delta > player.pot) return null;
-
-    const paid = this.chargeToPot(player, delta, { countsForBettingRound: true });
-    player.actedThisRound = true;
-    player.rested = false;
-    player.matched = true;
-    return paid;
+    return this.raiseCommitment(player, targetAmount);
   }
 
   canShowSanhua(player) {
@@ -340,16 +379,9 @@ class GameEngine {
     if (!this.canShowSanhua(p)) return null;
     const s = this.state;
     const sh = checkSanHua(p.hand);
-    const refund = Math.max(0, p.committed || 0);
+    // 亮三花：已喊价作废、分文不付（预扣退还）；底注/芒果已在 potPi 不退
+    const refund = this.refundCommitment(p);
 
-    if (refund > 0) {
-      p.pot += refund;
-      p.lastDelta += refund;
-      s.potPi = Math.max(0, s.potPi - refund);
-    }
-
-    p.committed = 0;
-    p.roundCommitted = 0;
     p.sanhuaShown = true;
     p.sanhuaType = sh.type;
     p.sanhuaCards = sanHuaCards(p.hand, sh.type);
@@ -436,7 +468,7 @@ class GameEngine {
     return this.state.bankerIdx;
   }
 
-  // 庄位逆时针轮转（跳过破产玩家）
+  // 庄位逆时针轮转（跳过破产 / 离座玩家）
   rotateBanker() {
     const n = this.players.length;
     const oldIdx = this.state.bankerIdx;
@@ -449,6 +481,75 @@ class GameEngine {
     this.state.bankerIdx = idx;
     console.log(`[ROTATE] oldBanker=${oldIdx}(${this.players[oldIdx]?.nickname}), newBanker=${idx}(${this.players[idx]?.nickname}), n=${n}`);
     return idx;
+  }
+
+  // 加簸：任意时刻可发起，当前局结算后 / 下局开始时生效
+  addBuyIn(username, amount) {
+    const p = this.getPlayer(username);
+    const n = Math.floor(Number(amount) || 0);
+    if (!p || n <= 0) return null;
+    p.pendingBuyIn = (p.pendingBuyIn || 0) + n;
+    return { username, amount: n, pendingBuyIn: p.pendingBuyIn };
+  }
+
+  // 下一局庄家预判（当前庄的下一位存活玩家）
+  nextBankerUsername() {
+    const n = this.players.length;
+    if (n === 0 || this.state.bankerIdx < 0) return null;
+    let idx = (this.state.bankerIdx + 1) % n;
+    let count = 0;
+    while ((this.players[idx].eliminated || this.players[idx].pot <= 0) && count < n) {
+      idx = (idx + 1) % n;
+      count++;
+    }
+    return this.players[idx]?.username || null;
+  }
+
+  // 按当前座位物理顺序重建 players（换座后调用）
+  rebuildPlayersFromSeats(seats) {
+    const config = GAME_TYPES[this.room.gameType];
+    const seatIds = ['top-0','top-1','right-0','right-1','bottom-0','bottom-1','left-0','left-1'];
+    const byUser = new Map(this.players.map(p => [p.username, p]));
+    const oldBanker = this.state.bankerIdx >= 0 ? this.players[this.state.bankerIdx]?.username : null;
+    const next = [];
+    seats.forEach((s, idx) => {
+      if (!s) return;
+      const existing = byUser.get(s.username);
+      if (existing) {
+        existing.seat = seatIds[idx];
+        next.push(existing);
+      } else {
+        next.push({
+          username: s.username,
+          nickname: s.nickname,
+          pot: s.buyIn || config.firstPot,
+          hand: [],
+          committed: 0,
+          roundCommitted: 0,
+          foldPaid: 0,
+          folded: true,
+          eliminated: false,
+          matched: true,
+          rested: false,
+          allIn: false,
+          actedThisRound: true,
+          sanhuaShown: false,
+          sanhuaType: null,
+          sanhuaCards: [],
+          sanhuaRevealLocked: false,
+          lastDelta: 0,
+          pendingBuyIn: 0,
+          totalBuyIn: s.buyIn || config.firstPot,
+          seat: seatIds[idx],
+          joiningNextRound: true,
+        });
+      }
+    });
+    this.players = next;
+    if (oldBanker) {
+      const bi = this.players.findIndex(p => p.username === oldBanker);
+      this.state.bankerIdx = bi >= 0 ? bi : 0;
+    }
   }
 
   // 逆时针距离计算（从 fromIdx 逆时针到 toIdx，递减方向）
@@ -491,6 +592,7 @@ class GameEngine {
       p.hand = [];
       p.committed = 0;
       p.roundCommitted = 0;
+      p.foldPaid = 0;
       p.folded = false;
       p.matched = false;
       p.rested = false;
@@ -501,6 +603,7 @@ class GameEngine {
       p.sanhuaCards = [];
       p.sanhuaRevealLocked = false;
       p.lastDelta = 0;
+      p.joiningNextRound = false;
     });
 
     const s = this.state;
@@ -544,7 +647,7 @@ class GameEngine {
 
   dealThirdCard() {
     const s = this.state;
-    const previousFinalBet = s.currentBet;
+    const previousFinalBet = s.lastFinalBet || s.currentBet;
     s.phase = 'dealing';
     const n = this.players.length;
     const order = this.activeIndicesCCW((s.bankerIdx + 1) % n);
@@ -567,7 +670,7 @@ class GameEngine {
 
   dealFourthCard() {
     const s = this.state;
-    const previousFinalBet = s.currentBet;
+    const previousFinalBet = s.lastFinalBet || s.currentBet;
     s.phase = 'dealing';
     const n = this.players.length;
     const order = this.activeIndicesCCW((s.bankerIdx + 1) % n);
@@ -610,21 +713,23 @@ class GameEngine {
   doSee(p) {
     const s = this.state;
     if (s.currentBet <= 0) return null;
-    if (p.roundCommitted + p.pot < s.currentBet) return null;
+    if (p.committed + p.pot < s.currentBet) return null;
     this.lockSanhuaRevealIfAvailable(p);
     const before = p.pot;
     const delta = this.placeBetToTarget(p, s.currentBet);
     if (delta === null) return null;
-    return { action: 'see', bet: delta, amount: s.currentBet, delta, allIn: p.pot <= 0 || delta >= before, player: p.username, name: p.nickname };
+    return { action: 'see', bet: delta, amount: s.currentBet, delta, allIn: p.pot <= 0, player: p.username, name: p.nickname };
   }
 
   doFold(p) {
     this.lockSanhuaRevealIfAvailable(p);
+    // 弃牌 = 立即支付自己当前的喊价进底池
+    const lost = this.payCommitmentToPot(p);
     p.folded = true;
     this.state.activeIds = this.state.activeIds.filter(id => id !== p.username);
     p.matched = true;
     p.actedThisRound = true;
-    return { action: 'fold', penalty: 0, lost: p.committed, player: p.username, name: p.nickname };
+    return { action: 'fold', penalty: 0, lost, player: p.username, name: p.nickname };
   }
 
   doRaise(p, amount) {
@@ -632,7 +737,8 @@ class GameEngine {
     amount = normalizeBetAmount(amount);
     if (amount === null) return null;
     if (amount <= s.currentBet) return null;
-    if (amount < s.minBet) return null;
+    // 本轮首个抬价需 ≥ minBet；同轮再加注只需高于当前最高喊价
+    if (!s.betStarted && amount < s.minBet) return null;
     this.lockSanhuaRevealIfAvailable(p);
     const before = p.pot;
     const delta = this.placeBetToTarget(p, amount);
@@ -641,13 +747,15 @@ class GameEngine {
     s.betStarted = true;
     s.raiseCount++;
     this.clearOtherMatchesAfterRaise(p);
-    return { action: 'raise', amount, delta, allIn: p.pot <= 0 || delta >= before, player: p.username, name: p.nickname };
+    return { action: 'raise', amount, delta, allIn: p.pot <= 0, player: p.username, name: p.nickname };
   }
 
   doKnock(p) {
     const s = this.state;
-    const target = p.roundCommitted + p.pot;
-    if (target <= p.roundCommitted) return null;
+    // 敲 = 喊价直接变为自己的全部簸簸数（已预扣的 committed + 手中剩余）
+    const target = p.committed + p.pot;
+    if (target <= 0) return null;
+    if (target === p.committed && p.allIn) return null;
     this.lockSanhuaRevealIfAvailable(p);
     const delta = this.placeBetToTarget(p, target);
     if (delta === null) return null;
@@ -678,13 +786,38 @@ class GameEngine {
     if (amount < s.minBet) return null;
     if (amount <= s.currentBet) return null;
     this.lockSanhuaRevealIfAvailable(p);
-    const before = p.pot;
     const delta = this.placeBetToTarget(p, amount);
     if (delta === null) return null;
     s.currentBet = amount;
     s.betStarted = true;
     this.clearOtherMatchesAfterRaise(p);
-    return { action: 'call', amount, delta, allIn: p.pot <= 0 || delta >= before, player: p.username, name: p.nickname };
+    return { action: 'call', amount, delta, allIn: p.pot <= 0, player: p.username, name: p.nickname };
+  }
+
+  // 本轮可休（无人抬价）
+  canRestNow() {
+    const s = this.state;
+    return !s.betStarted && s.currentBet <= 0;
+  }
+
+  // 未敲存活玩家数
+  countNonKnockedAlive() {
+    const s = this.state;
+    return s.activeIds
+      .map(id => this.getPlayer(id))
+      .filter(p => p && !p.folded && !p.eliminated && !p.allIn).length;
+  }
+
+  // ≤1 名未敲且其喊价已跟平（或本就最高）→ 应直接进比牌
+  shouldSkipRemainingBettingRounds() {
+    const s = this.state;
+    const stillIn = s.activeIds.map(id => this.getPlayer(id)).filter(p => p && !p.folded && !p.eliminated);
+    if (stillIn.length <= 1) return false;
+    const nonKnocked = stillIn.filter(p => !p.allIn);
+    if (nonKnocked.length > 1) return false;
+    if (nonKnocked.length === 0) return true; // 全员敲
+    const last = nonKnocked[0];
+    return last.committed >= s.currentBet;
   }
 
   // Advance to the next player who still needs to act.
@@ -728,6 +861,8 @@ class GameEngine {
     if (stillInPlayers.length <= 1) {
       if (stillInPlayers.length === 1) {
         const winner = stillInPlayers[0];
+        // 幸存者喊价作废退还（揍芒：只吃底池，不碰赢家自己的喊价）
+        this.refundCommitment(winner);
         const won = s.potPi;
         winner.pot += won;
         winner.lastDelta += won;
@@ -746,17 +881,36 @@ class GameEngine {
       return { done: true, reason: 'all_in_showdown' };
     }
 
+    // ≤1 名未敲且已跟平 → 跳过后续下注，直接发满牌比牌
+    if (this.shouldSkipRemainingBettingRounds()) {
+      s.lastFinalBet = Math.max(s.currentBet, ...stillInPlayers.map(p => p.committed || 0));
+      return { done: true, reason: 'all_in_showdown' };
+    }
+
     if (!s.betStarted && s.currentBet <= 0) {
       const actionable = stillInPlayers.filter(p => !p.allIn);
       const allRested = actionable.length > 0 && actionable.every(p => p.actedThisRound && p.rested);
       if (allRested) {
+        // 全员休：存活者喊价作废；弃牌者已付退回；只留底注+芒果
+        stillInPlayers.forEach(p => this.refundCommitment(p));
+        this.players.forEach(p => {
+          if (!p.folded) return;
+          const refund = Math.max(0, p.foldPaid || 0);
+          if (refund > 0) {
+            p.pot += refund;
+            p.lastDelta += refund;
+            s.potPi = Math.max(0, s.potPi - refund);
+            p.foldPaid = 0;
+          }
+        });
         s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
         return { done: true, reason: 'rest_cross' };
       }
       return { done: false };
     }
 
-    const allMatched = stillInPlayers.every(p => p.allIn || (p.actedThisRound && p.roundCommitted === s.currentBet));
+    // 跟平口径：累计喊价 === 当前最高喊价（敲者不要求跟到最高）
+    const allMatched = stillInPlayers.every(p => p.allIn || (p.actedThisRound && p.committed === s.currentBet));
     if (allMatched) {
       s.lastFinalBet = s.currentBet;
       return { done: true, reason: 'all_matched' };
@@ -829,16 +983,29 @@ class GameEngine {
     }
 
     if (active.length === 1) {
+      // 唯一幸存者：喊价退还 + 底池归他
+      this.refundCommitment(active[0]);
       active[0].pot += s.potPi;
       active[0].lastDelta += s.potPi;
       results[active[0].username].lastDelta += s.potPi;
       s.potPi = 0;
-      active.forEach(p => { p.pot = Math.max(0, p.pot + p.lastDelta); });
       this.players.forEach(p => { if (p.pot <= 0 && !p.eliminated) p.eliminated = true; });
       const result = { winner: active[0].username, alone: true, results };
       s.compareResult = result;
       return result;
     }
+
+    // 喊价入池：每位存活玩家按最终比价从预扣转入结算（底池本身已是底注+芒果+弃牌）
+    const openingAndFoldedPot = Math.max(0, s.potPi);
+    // 预扣已从 pot 划出，settlement 用 lastDelta 记账；最终把 committed 视作已投入、退还/瓜分通过 lastDelta 返还
+
+    const compareByTailThenHead = (a, b) => {
+      const aSp = s.splits[a.username];
+      const bSp = s.splits[b.username];
+      const tailCmp = compareCombo(bSp.tailEval, aSp.tailEval);
+      if (tailCmp !== 0) return tailCmp;
+      return compareCombo(bSp.headEval, aSp.headEval);
+    };
 
     const compareByTailThenSeat = (a, b) => {
       const aSp = s.splits[a.username];
@@ -906,14 +1073,62 @@ class GameEngine {
       });
     };
 
-    const committedTotal = active.reduce((sum, p) => sum + Math.max(0, p.committed || 0), 0);
-    const openingAndFoldedPot = Math.max(0, s.potPi - committedTotal);
-
     const credit = (player, amount) => {
       const value = Math.max(0, Math.floor(amount || 0));
       if (value <= 0) return;
       player.lastDelta += value;
       results[player.username].lastDelta += value;
+    };
+
+    // 梯队传递式分配输家最终比价（1.2）
+    const buildTiers = (winners) => {
+      const ordered = [...winners].sort(compareByTailThenHead);
+      const tiers = [];
+      for (const w of ordered) {
+        const last = tiers[tiers.length - 1];
+        if (last) {
+          const aSp = s.splits[last[0].username];
+          const bSp = s.splits[w.username];
+          if (compareCombo(aSp.tailEval, bSp.tailEval) === 0 && compareCombo(aSp.headEval, bSp.headEval) === 0) {
+            last.push(w);
+            continue;
+          }
+        }
+        tiers.push([w]);
+      }
+      return tiers;
+    };
+
+    // 梯队内按可吃平分，个人不超过自己的最终比价；先封顶的余量由并列者继续吃
+    const allocateWithinTier = (tier, amount) => {
+      let remaining = amount;
+      const roomLeft = new Map(tier.map(w => [w.username, Math.max(0, w.committed || 0)]));
+      const got = new Map(tier.map(w => [w.username, 0]));
+      while (remaining > 0) {
+        const eligible = tier.filter(w => (roomLeft.get(w.username) || 0) > 0);
+        if (eligible.length === 0) break;
+        const share = Math.floor(remaining / eligible.length);
+        if (share === 0) {
+          for (const w of eligible) {
+            if (remaining <= 0) break;
+            roomLeft.set(w.username, roomLeft.get(w.username) - 1);
+            got.set(w.username, (got.get(w.username) || 0) + 1);
+            remaining--;
+          }
+          continue;
+        }
+        let distributed = 0;
+        for (const w of eligible) {
+          const take = Math.min(share, roomLeft.get(w.username) || 0);
+          if (take <= 0) continue;
+          roomLeft.set(w.username, roomLeft.get(w.username) - take);
+          got.set(w.username, (got.get(w.username) || 0) + take);
+          distributed += take;
+        }
+        remaining -= distributed;
+        if (distributed === 0) break;
+      }
+      return { got, leftover: remaining };
     };
 
     const distributeLoserStake = (loser, winners, stake) => {
@@ -923,24 +1138,19 @@ class GameEngine {
         credit(loser, wager);
         return;
       }
-
-      const strongest = winners.filter(candidate => {
-        return !winners.some(other => {
-          if (other.username === candidate.username) return false;
-          return compareSplit(s.splits[other.username], s.splits[candidate.username]) > 0;
-        });
-      });
-      const capTotal = strongest.reduce((sum, p) => sum + Math.max(0, p.committed || 0), 0);
-      let remaining = Math.min(wager, capTotal);
-      strongest.forEach((winner, idx) => {
-        if (remaining <= 0) return;
-        const slots = strongest.length - idx;
-        const share = idx === strongest.length - 1 ? remaining : Math.floor(remaining / slots);
-        const won = Math.min(share, Math.max(0, winner.committed || 0));
-        credit(winner, won);
-        remaining -= won;
-      });
-      credit(loser, wager - Math.min(wager, capTotal));
+      const tiers = buildTiers(winners);
+      let remaining = wager;
+      for (const tier of tiers) {
+        if (remaining <= 0) break;
+        const tierCap = tier.reduce((sum, w) => sum + Math.max(0, w.committed || 0), 0);
+        const edible = Math.min(remaining, tierCap);
+        const { got, leftover } = allocateWithinTier(tier, edible);
+        for (const w of tier) {
+          credit(w, got.get(w.username) || 0);
+        }
+        remaining = remaining - edible + leftover;
+      }
+      if (remaining > 0) credit(loser, remaining);
     };
 
     active.forEach(loser => {
@@ -953,10 +1163,16 @@ class GameEngine {
       distributeLoserStake(loser, winners, stake);
     });
 
+    // 底池（底注+芒果+弃牌）归尾大者，不受封顶
     distributePot(openingAndFoldedPot, tailWinnersFor(active));
     s.potPi = 0;
 
-    active.forEach(p => { p.pot = Math.max(0, p.pot + p.lastDelta); });
+    // 清除已结算的喊价预扣（已通过 lastDelta 分配/退还）
+    active.forEach(p => {
+      p.committed = 0;
+      p.roundCommitted = 0;
+      p.pot = Math.max(0, p.pot + p.lastDelta);
+    });
 
     // 检查破产
     this.players.forEach(p => {
@@ -996,9 +1212,9 @@ class GameEngine {
       hints: {
         'idle': '等待开始...',
         'dealing': '发牌中...',
-        'betting1': `第一轮过招（暗牌）— 当前招 ${s.currentBet}`,
-        'betting2': `第二轮过招（3张牌）— ${s.betStarted ? '当前招 ' + s.currentBet : '休/叫'}`,
-        'betting3': `第三轮过招（4张牌）— ${s.betStarted ? '当前招 ' + s.currentBet : '休/叫'}`,
+        'betting1': `第一轮过招（暗牌）— 当前喊价 ${s.currentBet || '无'}`,
+        'betting2': `第二轮过招（3张牌）— ${s.betStarted ? '当前喊价 ' + s.currentBet : '休/叫'}`,
+        'betting3': `第三轮过招（4张牌）— ${s.betStarted ? '当前喊价 ' + s.currentBet : '休/叫'}`,
         'selecting': '请选2张牌配对，系统自动分配头尾',
         'comparing': '扯牌比大小中...',
         'done': '本局结束，即将开始下一局...',
@@ -1062,4 +1278,4 @@ class GameEngine {
   }
 }
 
-module.exports = { GameEngine, evalCombo, compareCombo };
+module.exports = { GameEngine, evalCombo, compareCombo, compareSplit, DECK };

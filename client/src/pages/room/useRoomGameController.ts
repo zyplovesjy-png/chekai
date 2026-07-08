@@ -48,6 +48,8 @@ export function useRoomGameController({
   const [showBuyIn, setShowBuyIn] = useState(false);
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null);
   const [buyInAmount, setBuyInAmount] = useState(0);
+  const [buyInDecision, setBuyInDecision] = useState<{ brokeUsername: string; brokeNickname: string } | null>(null);
+  const [addBuyInAmount, setAddBuyInAmount] = useState(100);
   const [showMenu, setShowMenu] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [viewingRound, setViewingRound] = useState(-1);
@@ -234,7 +236,19 @@ export function useRoomGameController({
           : null;
         currentGame.setCenterMessage(`本局胜者: ${winner?.nickname || msg.result?.winner || '-'}`);
       },
-      game_settlement: (msg: any) => gameRef.current.setSettlement(msg.settlement || []),
+      game_settlement: (msg: any) => {
+        setBuyInDecision(null);
+        gameRef.current.setSettlement(msg.settlement || []);
+      },
+      awaiting_buyin_decision: (msg: any) => {
+        setBuyInDecision({
+          brokeUsername: msg.brokeUsername,
+          brokeNickname: msg.brokeNickname,
+        });
+      },
+      buyin_pending: (msg: any) => {
+        gameRef.current.setHintText(`${msg.username} 已申请加簸 ${msg.amount}（下局生效）`);
+      },
       player_reconnected: () => gameRef.current.setHintText('玩家重新连接'),
       room_disbanded: () => {
         gameRef.current.reset();
@@ -328,6 +342,19 @@ export function useRoomGameController({
     if (!code) return;
     await api(`/api/rooms/${code}/stand`, { method: 'POST' });
   }, [api, code]);
+
+  const handleAddBuyIn = useCallback(async (amount: number) => {
+    if (!code || amount <= 0) return;
+    await api(`/api/rooms/${code}/add-buyin`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  }, [api, code]);
+
+  const handleBuyInDecision = useCallback((choice: 'continue' | 'settle', amount?: number) => {
+    send({ type: 'buyin_decision', choice, amount });
+    if (choice === 'continue') setBuyInDecision(null);
+  }, [send]);
 
   const handleReady = useCallback(async () => {
     if (!code) return;
@@ -432,6 +459,11 @@ export function useRoomGameController({
     handleSit,
     handleSitConfirm,
     handleStandUp,
+    handleAddBuyIn,
+    handleBuyInDecision,
+    buyInDecision,
+    addBuyInAmount,
+    setAddBuyInAmount,
     handleReady,
     handleStartGame,
     handleDisband,

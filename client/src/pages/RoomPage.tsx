@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import { useParams, useNavigate } from 'react-router-dom';
+﻿import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Card } from '@/stores/gameStore';
@@ -70,6 +70,11 @@ export default function RoomPage() {
     isMyTurn,
     isBetting,
     betStarted,
+    handleAddBuyIn,
+    handleBuyInDecision,
+    buyInDecision,
+    addBuyInAmount,
+    setAddBuyInAmount,
   } = useRoomGameController({ code, room, myUsername, navigate, api, setRoom });
 
   const myPlayer = game.players.find((player) => player.username === myUsername);
@@ -208,7 +213,7 @@ export default function RoomPage() {
             <span className="pot-value">{game.potPi}</span>
           </div>
           {game.gameStarted && game.currentBet > 0 && (
-            <div className="current-bet-marker" aria-label={`\u5f53\u524d\u4e0b\u6ce8 ${game.currentBet}`}>
+            <div className="current-bet-marker" aria-label={`当前喊价 ${game.currentBet}`}>
               <span className="current-bet-dot" />
               <span>{game.currentBet}</span>
             </div>
@@ -262,7 +267,7 @@ export default function RoomPage() {
         minBet={game.minBet}
         maxBet={game.maxBet}
         playerChips={myPlayer?.pot ?? 0}
-        playerRoundCommitted={myPlayer?.roundCommitted ?? 0}
+        playerRoundCommitted={myPlayer?.committed ?? myPlayer?.roundCommitted ?? 0}
         canShowSanhua={!!myPlayer?.canShowSanhua}
         selectedCount={game.selected.length}
         canHostStart={!!room && isHostUser && !room.gameStarted && allReady}
@@ -285,11 +290,58 @@ export default function RoomPage() {
           {!game.gameStarted && room?.seats.some((s) => s?.username === myUsername) && (
             <button className="menu-popover-item" type="button" onClick={() => { handleStandUp(); setShowMenu(false); }}>{"\u79bb\u5f00\u5ea7\u4f4d"}</button>
           )}
+          {room?.seats.some((s) => s?.username === myUsername) && (
+            <button className="menu-popover-item" type="button" onClick={() => {
+              const amount = Number(prompt('加簸金额（本局结算后生效）', String(addBuyInAmount)) || 0);
+              if (amount > 0) {
+                setAddBuyInAmount(amount);
+                handleAddBuyIn(amount);
+              }
+              setShowMenu(false);
+            }}>加簸</button>
+          )}
           {room && myUsername === room.host && (
             <button className="menu-popover-item danger" type="button" onClick={() => { handleDisband(); setShowMenu(false); }}>{"\u89e3\u6563\u623f\u95f4"}</button>
           )}
           <button className="menu-popover-item" type="button" onClick={() => { handleLeaveRoom(); setShowMenu(false); }}>{"\u8fd4\u56de\u5927\u5385"}</button>
           <button className="menu-popover-close" type="button" aria-label={"\u5173\u95ed"} onClick={() => setShowMenu(false)}>{"\u00d7"}</button>
+        </div>
+      )}
+
+      {buyInDecision && (
+        <div className="modal-overlay">
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">簸簸归零</div>
+            <p className="modal-desc">
+              {buyInDecision.brokeNickname} 已输光。两人局可选择加簸继续，或立即结算退出。
+            </p>
+            <div className="buyin-options">
+              {[100, 200, 300, 500].map((amount) => (
+                <label key={amount} className="buyin-option">
+                  <input
+                    type="radio"
+                    name="add-buyin-decision"
+                    value={amount}
+                    checked={addBuyInAmount === amount}
+                    onChange={() => setAddBuyInAmount(amount)}
+                  />
+                  加簸 {amount}
+                </label>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => handleBuyInDecision('continue', addBuyInAmount)}
+                disabled={myUsername !== buyInDecision.brokeUsername && !isHostUser}
+              >
+                加簸继续
+              </button>
+              <button className="btn" onClick={() => handleBuyInDecision('settle')}>
+                立即结算退出
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
