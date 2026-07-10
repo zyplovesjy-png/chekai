@@ -6,6 +6,7 @@ export interface GamePlayer {
   pot: number;
   committed: number;
   roundCommitted?: number;
+  pendingBuyIn?: number;
   allIn?: boolean;
   sanhuaShown?: boolean;
   sanhuaType?: string | null;
@@ -55,6 +56,24 @@ export interface CompareResult {
   }>;
   ranked?: string[];
   alone?: boolean;
+  reason?: string;
+  /** 局结束快照：全员完整手牌（含暗牌），供对局记录展示 */
+  hands?: Record<string, Card[]>;
+  splits?: Record<string, {
+    head: Card[];
+    tail: Card[];
+    headName: string;
+    tailName: string;
+  }>;
+}
+
+/** 是否为真正扯牌比大小（有配牌结果），而非弃牌/休芒等提前结束 */
+export function isRealCompare(result: CompareResult | null | undefined): boolean {
+  if (!result) return false;
+  if (result.reason === 'all_folded' || result.reason === 'rest_cross') return false;
+  if (result.reason === 'compare') return true;
+  const splits = result.splits;
+  return !!(splits && Object.keys(splits).length > 0);
 }
 
 export interface GameAction {
@@ -86,6 +105,23 @@ export interface RoundRecord {
   winner: string | null;
 }
 
+export type FeedKind = 'action' | 'system' | 'phase' | 'error';
+
+export interface MessageFeedItem {
+  id: number;
+  text: string;
+  kind: FeedKind;
+  at: number;
+}
+
+export interface TableToast {
+  text: string;
+  sticky?: boolean;
+  until?: number;
+}
+
+const FEED_MAX = 5;
+
 interface GameState {
   phase: string;
   round: number;
@@ -99,13 +135,18 @@ interface GameState {
   betStarted: boolean;
   toAct: string[];
   opener: string;
+  /** @deprecated 公共播报改走 messageFeed；保留兼容 */
   hintText: string;
+  /** 公共动作条（最近几条） */
+  messageFeed: MessageFeedItem[];
+  /** 桌心高优先级 Toast */
+  tableToast: TableToast | null;
   players: GamePlayer[];
   // 庄家
   bankerIdx: number;
   bankerUsername: string | null;
-  bankerHighlight: string | null; // 选庄动画中高亮的 username
-  centerMessage: string | null;    // 中央弹出消息
+  bankerHighlight: string | null;
+  centerMessage: string | null;
   // 本局已敲用户（持久化到本局结束）
   knockedThisRound: string[];
   // 全局结算
@@ -128,6 +169,10 @@ interface GameState {
   setCompareResult: (r: CompareResult | null) => void;
   setGameStarted: (v: boolean) => void;
   setHintText: (text: string) => void;
+  pushFeed: (text: string, kind?: FeedKind) => void;
+  clearFeed: () => void;
+  showToast: (text: string, opts?: { sticky?: boolean; ms?: number }) => void;
+  clearToast: () => void;
   setBankerHighlight: (username: string | null) => void;
   setCenterMessage: (msg: string | null) => void;
   addRoundHistory: (record: RoundRecord) => void;
@@ -153,6 +198,8 @@ const initialState = {
   toAct: [],
   opener: '',
   hintText: '',
+  messageFeed: [] as MessageFeedItem[],
+  tableToast: null as TableToast | null,
   players: [],
   bankerIdx: -1,
   bankerUsername: null as string | null,
@@ -169,7 +216,10 @@ const initialState = {
   history: [],
 };
 
-export const useGameStore = create<GameState>((set) => ({
+let feedSeq = 0;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const useGameStore = create<GameState>((set, get) => ({
   ...initialState,
 
   setPublicState: (state) => set({
@@ -185,7 +235,7 @@ export const useGameStore = create<GameState>((set) => ({
     betStarted: state.betStarted,
     toAct: state.toAct,
     opener: state.opener,
-    hintText: state.hints || '',
+    // 不再用服务端长 hints 覆盖公共消息区
     players: state.players || [],
     bankerIdx: state.bankerIdx ?? -1,
     bankerUsername: state.bankerUsername ?? null,
@@ -207,7 +257,6 @@ export const useGameStore = create<GameState>((set) => ({
     betStarted: state.betStarted,
     toAct: state.toAct,
     opener: state.opener,
-    hintText: state.hints || '',
     players: state.players || [],
     bankerIdx: state.bankerIdx ?? -1,
     bankerUsername: state.bankerUsername ?? null,
@@ -226,12 +275,77 @@ export const useGameStore = create<GameState>((set) => ({
   setCompareResult: (r) => set({ compareResult: r }),
   setGameStarted: (v) => set({ gameStarted: v }),
   setHintText: (text) => set({ hintText: text }),
+  pushFeed: (text, kind = 'action') => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return;
+    set((s) => {
+      const last = s.messageFeed[s.messageFeed.length - 1];
+      if (last && last.text === trimmed && Date.now() - last.at < 400) {
+        return s;
+      }
+      const item: MessageFeedItem = {
+        id: ++feedSeq,
+        text: trimmed,
+        kind,
+        at: Date.now(),
+      };
+      return { messageFeed: [...s.messageFeed.slice(-(FEED_MAX - 1)), item] };
+    });
+  },
+  clearFeed: () => set({ messageFeed: [] }),
+  showToast: (text, opts) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+      get().clearToast();
+      return;
+    }
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    const sticky = !!opts?.sticky;
+    const ms = opts?.ms ?? (sticky ? 0 : 2800);
+    set({
+      tableToast: {
+        text: trimmed,
+        sticky,
+        until: sticky || !ms ? undefined : Date.now() + ms,
+      },
+      centerMessage: trimmed,
+    });
+    if (!sticky && ms > 0) {
+      toastTimer = setTimeout(() => {
+        toastTimer = null;
+        const cur = get().tableToast;
+        if (cur?.text === trimmed) {
+          set({ tableToast: null, centerMessage: null });
+        }
+      }, ms);
+    }
+  },
+  clearToast: () => {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    set({ tableToast: null, centerMessage: null });
+  },
   setBankerHighlight: (username) => set({ bankerHighlight: username }),
-  setCenterMessage: (msg) => set({ centerMessage: msg }),
+  setCenterMessage: (msg) => {
+    // 兼容旧调用：转发到 showToast / clearToast
+    if (!msg) get().clearToast();
+    else get().showToast(msg, { sticky: true });
+  },
   addRoundHistory: (record) => set((s) => ({ roundHistory: [...s.roundHistory, record] })),
   knockUser: (username: string) => set((s) => ({ knockedThisRound: s.knockedThisRound.includes(username) ? s.knockedThisRound : [...s.knockedThisRound, username] })),
   clearKnockedThisRound: () => set({ knockedThisRound: [] }),
   setSettlement: (settlement: SettlementPlayer[] | null) => set({ settlement }),
   addHistory: (msg) => set((s) => ({ history: [...s.history.slice(-99), msg] })),
-  reset: () => set({ ...initialState, knockedThisRound: [] }),
+  reset: () => {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    set({ ...initialState, knockedThisRound: [], messageFeed: [], tableToast: null });
+  },
 }));

@@ -36,15 +36,11 @@ const DECK = [
   {id:'joker', color:'joker', rank:'JK', cnName:'大鬼', cnChar:'鬼', cardPoints:6, order:50, suit:'★'},
 ];
 
-const GAME_TYPES = {
-  '1,3':  { name:'1\u30013',  firstPot:100, minPot:50,  maxBet:Number.MAX_SAFE_INTEGER },
-  '5,10': { name:'5\u300110', firstPot:500, minPot:300, maxBet:Number.MAX_SAFE_INTEGER },
-  '5,20': { name:'5\u300120', firstPot:1000,minPot:500, maxBet:Number.MAX_SAFE_INTEGER },
-};
-
 const BANKER_ANTE = 10;
 const MANGO_BASE = 10;
 const MAX_REST_MANGO_LEVEL = 3;
+const DEFAULT_BUY_IN = 100;
+const DEFAULT_MAX_BET = Number.MAX_SAFE_INTEGER;
 
 const COMBO_RAW = [
   {a:'rQ', b:'b7', sub:1, pts:9, name:'天官九'},{a:'r2', b:'b7', sub:2, pts:9, name:'地官九'},
@@ -205,14 +201,15 @@ class GameEngine {
   // 从房间座位初始化玩家
   init(seats) {
     this.players = [];
-    const config = GAME_TYPES[this.room.gameType];
-    const seatIds = ['top-0','top-1','right-0','right-1','bottom-0','bottom-1','left-0','left-1'];
+    // 座位固化编号（逆时针，底=1）：底→右→上→左；下标 0..7 = 座位号 1..8
+    const seatIds = ['bottom-0','right-1','right-0','top-1','top-0','left-1','left-0','bottom-1'];
     seats.forEach((s, idx) => {
       if (!s) return;
+      const buyIn = s.buyIn || this.room.minBuyIn || DEFAULT_BUY_IN;
       this.players.push({
         username: s.username,
         nickname: s.nickname,
-        pot: s.buyIn || config.firstPot,
+        pot: buyIn,
         hand: [],
         committed: 0,
         roundCommitted: 0,
@@ -228,16 +225,16 @@ class GameEngine {
         sanhuaCards: [],
         sanhuaRevealLocked: false,
         lastDelta: 0,
+        roundStartPot: buyIn,
         pendingBuyIn: 0,
-        totalBuyIn: s.buyIn || config.firstPot,
+        totalBuyIn: buyIn,
         seat: seatIds[idx],
+        seatNo: idx + 1,
       });
     });
     if (this.players.length < 2) return false;
 
     this.state = {
-      gameType: this.room.gameType,
-      config,
       round: 0,
       phase: 'idle',
       bankerIdx: -1,
@@ -250,8 +247,10 @@ class GameEngine {
       lastWinner: null,
       restMangoLevel: 0,
       beatMangoWinner: null,
+      openingMango: null,
       roundHadBet: false,
       minBet: MANGO_BASE,
+      maxBet: DEFAULT_MAX_BET,
       lastFinalBet: 0,
       betRound: 0,
       betStarted: false,
@@ -419,10 +418,19 @@ class GameEngine {
 
     if (s.restMangoLevel > 0) {
       const mango = s.restMangoLevel * MANGO_BASE;
+      // 供复盘文案：休芒 / 揍芒（在清空 beatMangoWinner 前记下）
+      s.openingMango = {
+        level: s.restMangoLevel,
+        kind: s.beatMangoWinner ? 'beat' : 'rest',
+        exempt: s.beatMangoWinner || null,
+        amount: mango,
+      };
       alive.forEach(p => {
         if (p.username !== s.beatMangoWinner) this.chargeToPot(p, mango);
       });
       s.beatMangoWinner = null;
+    } else {
+      s.openingMango = null;
     }
 
     const banker = this.players[s.bankerIdx];
@@ -431,21 +439,12 @@ class GameEngine {
     }
   }
 
-  // 活跃玩家索引（顺时针，保留备用）
+  // 活跃玩家索引（从 startIdx 起按 players 下标递增 = 座位逆时针）
   activeIndicesFrom(startIdx) {
-    const n = this.players.length;
-    const result = [];
-    for (let i = 0; i < n; i++) {
-      const idx = (startIdx + i) % n;
-      const p = this.players[idx];
-      if (this.state.activeIds.includes(p.username) && !p.folded) {
-        result.push(idx);
-      }
-    }
-    return result;
+    return this.activeIndicesCCW(startIdx);
   }
 
-  // 逆时针方向活跃玩家索引（从 startIdx 开始，递增索引 = 逆时针）
+  // 逆时针活跃玩家索引：座位数组已按逆时针编号，下标 +1 = 逆时针下一家
   activeIndicesCCW(startIdx) {
     const n = this.players.length;
     const result = [];
@@ -505,10 +504,9 @@ class GameEngine {
     return this.players[idx]?.username || null;
   }
 
-  // 按当前座位物理顺序重建 players（换座后调用）
+  // 按当前座位物理顺序重建 players（换座/离座后调用）；顺序 = 座位号 1→8 逆时针
   rebuildPlayersFromSeats(seats) {
-    const config = GAME_TYPES[this.room.gameType];
-    const seatIds = ['top-0','top-1','right-0','right-1','bottom-0','bottom-1','left-0','left-1'];
+    const seatIds = ['bottom-0','right-1','right-0','top-1','top-0','left-1','left-0','bottom-1'];
     const byUser = new Map(this.players.map(p => [p.username, p]));
     const oldBanker = this.state.bankerIdx >= 0 ? this.players[this.state.bankerIdx]?.username : null;
     const next = [];
@@ -517,12 +515,14 @@ class GameEngine {
       const existing = byUser.get(s.username);
       if (existing) {
         existing.seat = seatIds[idx];
+        existing.seatNo = idx + 1;
         next.push(existing);
       } else {
+        const buyIn = s.buyIn || this.room.minBuyIn || DEFAULT_BUY_IN;
         next.push({
           username: s.username,
           nickname: s.nickname,
-          pot: s.buyIn || config.firstPot,
+          pot: buyIn,
           hand: [],
           committed: 0,
           roundCommitted: 0,
@@ -538,32 +538,70 @@ class GameEngine {
           sanhuaCards: [],
           sanhuaRevealLocked: false,
           lastDelta: 0,
+          roundStartPot: buyIn,
           pendingBuyIn: 0,
-          totalBuyIn: s.buyIn || config.firstPot,
+          totalBuyIn: buyIn,
           seat: seatIds[idx],
+          seatNo: idx + 1,
           joiningNextRound: true,
         });
       }
     });
     this.players = next;
-    if (oldBanker) {
-      const bi = this.players.findIndex(p => p.username === oldBanker);
-      this.state.bankerIdx = bi >= 0 ? bi : 0;
+    // 同步 activeIds / toAct，去掉已离座玩家
+    if (this.state) {
+      const seated = new Set(next.map(p => p.username));
+      this.state.activeIds = (this.state.activeIds || []).filter(id => seated.has(id));
+      this.state.toAct = (this.state.toAct || []).filter(id => seated.has(id));
+      if (oldBanker && seated.has(oldBanker)) {
+        this.state.bankerIdx = this.players.findIndex(p => p.username === oldBanker);
+      } else if (this.players.length > 0) {
+        // 庄家离座：从原庄家座位号的下一家开始找存活者
+        const oldSeatNo = byUser.get(oldBanker)?.seatNo || 1;
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        this.players.forEach((p, i) => {
+          if (p.eliminated || p.pot <= 0) return;
+          const dist = (p.seatNo - oldSeatNo + 8) % 8;
+          if (dist > 0 && dist < bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+          }
+        });
+        this.state.bankerIdx = bestIdx;
+      } else {
+        this.state.bankerIdx = -1;
+      }
     }
   }
 
-  // 逆时针距离计算（从 fromIdx 逆时针到 toIdx，递减方向）
+  // 逆时针距离：players 下标增大 = 逆时针，从 fromIdx 到 toIdx
   counterClockwiseDistance(fromIdx, toIdx) {
     const n = this.players.length;
     return (toIdx - fromIdx + n) % n;
   }
 
-  // 带平局的开招者查找（用于第3、4张牌）
+  // 第一轮发话顺序（庄家下家起，逆时针）——第3/4张并列最大时用此顺序决先后
+  firstRoundSpeakOrder() {
+    const n = this.players.length;
+    if (n === 0 || this.state.bankerIdx < 0) return [];
+    return this.activeIndicesCCW((this.state.bankerIdx + 1) % n);
+  }
+
+  // 第3/4张牌后谁先发话：明牌最大者；并列最大时按第一轮发话顺序谁在前谁先说
+  // 例：座位逆时针 abcde，b 庄 → 第一轮 cdeab；d、a 并列最大 → d 在前 → 本轮 deabc
   findOpenerWithTieBreak(cardIdx) {
+    const round1 = this.firstRoundSpeakOrder();
+    const orderRank = new Map();
+    round1.forEach((idx, rank) => {
+      orderRank.set(this.players[idx].username, rank);
+    });
+
     const active = this.state.activeIds
       .map(id => this.getPlayer(id))
       .filter(p => p && !p.folded && p.hand[cardIdx]);
     if (active.length === 0) return null;
+
     let best = active[0];
     for (let i = 1; i < active.length; i++) {
       const p = active[i];
@@ -571,10 +609,9 @@ class GameEngine {
       if (cardCmp > 0) {
         best = p;
       } else if (cardCmp === 0) {
-        // 平局：逆时针更靠近庄家的优先
-        const pDist = this.counterClockwiseDistance(this.state.bankerIdx, this.players.indexOf(p));
-        const bestDist = this.counterClockwiseDistance(this.state.bankerIdx, this.players.indexOf(best));
-        if (pDist < bestDist) best = p;
+        const pRank = orderRank.has(p.username) ? orderRank.get(p.username) : 999;
+        const bestRank = orderRank.has(best.username) ? orderRank.get(best.username) : 999;
+        if (pRank < bestRank) best = p;
       }
     }
     return best.username;
@@ -603,6 +640,7 @@ class GameEngine {
       p.sanhuaCards = [];
       p.sanhuaRevealLocked = false;
       p.lastDelta = 0;
+      p.roundStartPot = p.pot;
       p.joiningNextRound = false;
     });
 
@@ -861,13 +899,15 @@ class GameEngine {
     if (stillInPlayers.length <= 1) {
       if (stillInPlayers.length === 1) {
         const winner = stillInPlayers[0];
-        // 幸存者喊价作废退还（揍芒：只吃底池，不碰赢家自己的喊价）
+        // 幸存者喊价作废退还（只吃底池，不碰赢家自己的喊价）
         this.refundCommitment(winner);
         const won = s.potPi;
         winner.pot += won;
         winner.lastDelta += won;
         s.potPi = 0;
-        if (s.roundHadBet) {
+        // 揍芒：有人下注后其余「弃牌」才触发。亮三花不算弃牌，不揍芒。
+        const someoneFolded = this.players.some(p => p.folded && !p.eliminated);
+        if (s.roundHadBet && someoneFolded) {
           s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
           s.beatMangoWinner = winner.username;
         }
@@ -925,17 +965,32 @@ class GameEngine {
     const combos = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
     for (const [i,j] of combos) {
       const pair1 = [cards[i], cards[j]];
-      const pair2 = cards.filter((_,k) => k!==i && k!==j);
+      const otherIdx = [0, 1, 2, 3].filter((k) => k !== i && k !== j);
+      const pair2 = otherIdx.map((k) => cards[k]);
       const e1 = evalCombo(pair1[0], pair1[1]);
       const e2 = evalCombo(pair2[0], pair2[1]);
-      // 自动分配：大的作为头，小的作为尾
+      // 自动分配：大的作为头，小的作为尾；headIdx 必须指向实际头牌索引
       if (compareCombo(e1, e2) >= 0) {
-        splits.push({head:pair1, tail:pair2, headEval:e1, tailEval:e2, headIdx:[i,j]});
+        splits.push({ head: pair1, tail: pair2, headEval: e1, tailEval: e2, headIdx: [i, j] });
       } else {
-        splits.push({head:pair2, tail:pair1, headEval:e2, tailEval:e1, headIdx:[i,j]});
+        splits.push({ head: pair2, tail: pair1, headEval: e2, tailEval: e1, headIdx: otherIdx });
       }
     }
     return splits;
+  }
+
+  /** 按玩家点选的两张牌（任一头或尾）匹配唯一配法 */
+  pickSplitByPair(cards, pairIdx) {
+    const sortedIdx = [...pairIdx].sort((a, b) => a - b);
+    const samePair = (a, b) => {
+      const sa = [...a].sort((x, y) => x - y);
+      const sb = [...b].sort((x, y) => x - y);
+      return sa[0] === sb[0] && sa[1] === sb[1];
+    };
+    return this.getAllSplits(cards).find((sp) => {
+      const tailIdx = [0, 1, 2, 3].filter((k) => !sp.headIdx.includes(k));
+      return samePair(sortedIdx, sp.headIdx) || samePair(sortedIdx, tailIdx);
+    }) || null;
   }
 
   aiPickSplit(player) {
@@ -978,7 +1033,12 @@ class GameEngine {
     if (active.length === 0) {
       s.potPi = 0;
       this.players.forEach(p => { p.pot = Math.max(0, p.pot + p.lastDelta); });
-      s.compareResult = { winner: null, results };
+      s.compareResult = {
+        winner: null,
+        results,
+        hands: Object.fromEntries(this.players.map(p => [p.username, [...(p.hand || [])]])),
+        splits: {},
+      };
       return s.compareResult;
     }
 
@@ -986,11 +1046,32 @@ class GameEngine {
       // 唯一幸存者：喊价退还 + 底池归他
       this.refundCommitment(active[0]);
       active[0].pot += s.potPi;
-      active[0].lastDelta += s.potPi;
-      results[active[0].username].lastDelta += s.potPi;
       s.potPi = 0;
-      this.players.forEach(p => { if (p.pot <= 0 && !p.eliminated) p.eliminated = true; });
-      const result = { winner: active[0].username, alone: true, results };
+      this.players.forEach(p => {
+        const start = p.roundStartPot != null ? p.roundStartPot : p.pot;
+        p.lastDelta = p.pot - start;
+        if (!results[p.username]) {
+          results[p.username] = { wins: 0, losses: 0, ties: 0, headName: '', tailName: '', lastDelta: p.lastDelta };
+        } else {
+          results[p.username].lastDelta = p.lastDelta;
+        }
+        if (p.pot <= 0 && !p.eliminated) p.eliminated = true;
+      });
+      const result = {
+        winner: active[0].username,
+        alone: true,
+        reason: 'compare',
+        results,
+        hands: Object.fromEntries(this.players.map(p => [p.username, [...(p.hand || [])]])),
+        splits: Object.fromEntries(
+          Object.entries(s.splits || {}).map(([u, sp]) => [u, {
+            head: sp.head,
+            tail: sp.tail,
+            headName: sp.headEval?.name || '',
+            tailName: sp.tailEval?.name || '',
+          }]),
+        ),
+      };
       s.compareResult = result;
       return result;
     }
@@ -1174,6 +1255,21 @@ class GameEngine {
       p.pot = Math.max(0, p.pot + p.lastDelta);
     });
 
+    // 用「局末簸簸 − 局初簸簸」作为本局净输赢（含底注/芒果/弃牌/比牌）
+    this.players.forEach(p => {
+      const start = p.roundStartPot != null ? p.roundStartPot : p.pot;
+      p.lastDelta = p.pot - start;
+      if (!results[p.username]) {
+        results[p.username] = {
+          wins: 0, losses: 0, ties: 0,
+          headName: '', tailName: '',
+          lastDelta: p.lastDelta,
+        };
+      } else {
+        results[p.username].lastDelta = p.lastDelta;
+      }
+    });
+
     // 检查破产
     this.players.forEach(p => {
       if (p.pot <= 0 && !p.eliminated) p.eliminated = true;
@@ -1181,8 +1277,19 @@ class GameEngine {
 
     const result = {
       winner: ranked[0]?.username || null,
+      reason: 'compare',
       results,
       ranked: ranked.map(p => p.username),
+      // 对局记录用：全员完整手牌（含弃牌者暗牌）
+      hands: Object.fromEntries(this.players.map(p => [p.username, [...(p.hand || [])]])),
+      splits: Object.fromEntries(
+        Object.entries(s.splits || {}).map(([u, sp]) => [u, {
+          head: sp.head,
+          tail: sp.tail,
+          headName: sp.headEval?.name || '',
+          tailName: sp.tailEval?.name || '',
+        }]),
+      ),
     };
     s.compareResult = result;
     return result;
@@ -1191,13 +1298,20 @@ class GameEngine {
   // ---- 获取状态快照（发送给客户端） ----
   getPublicState() {
     const s = this.state;
-    const showAllCards = ['comparing','done'].includes(s.phase);
+    const cmp = s.compareResult;
+    const realCompare = s.phase === 'comparing'
+      || (s.phase === 'done'
+        && cmp
+        && cmp.reason !== 'all_folded'
+        && cmp.reason !== 'rest_cross'
+        && !!(cmp.splits && Object.keys(cmp.splits).length));
+    const showAllCards = realCompare;
     return {
       phase: s.phase,
       round: s.round,
       currentBet: s.currentBet,
       minBet: s.minBet,
-      maxBet: s.config.maxBet,
+      maxBet: s.maxBet ?? DEFAULT_MAX_BET,
       potPi: s.potPi,
       remainingCards: Math.max(0, s.deck.length - s.dealIdx),
       deckSize: s.deck.length,
@@ -1205,7 +1319,6 @@ class GameEngine {
       betStarted: s.betStarted,
       opener: s.opener,
       toAct: s.toAct,
-      gameType: s.gameType,
       bankerIdx: s.bankerIdx,
       bankerUsername: s.bankerIdx >= 0 ? this.players[s.bankerIdx]?.username : null,
       compareResult: s.compareResult,
@@ -1237,9 +1350,16 @@ class GameEngine {
           handCount: p.hand.length,
           lastDelta: p.lastDelta,
           seat: p.seat,
-          // 比牌阶段展示全部4张牌，否则只展示第3、4张明牌
-          publicCards: p.sanhuaShown ? p.sanhuaCards : (showAllCards ? p.hand : p.hand.slice(2)),
-          // 配牌分组信息
+          // 明牌规则：
+          // - 默认只发第3/4张（hand.slice(2)）
+          // - 弃牌永不亮暗牌
+          // - 仅真正比牌（已配牌）才亮全部4张；全员弃牌结束的 done 不亮暗牌
+          publicCards: p.sanhuaShown
+            ? p.sanhuaCards
+            : (p.folded
+              ? p.hand.slice(2)
+              : (showAllCards && split ? p.hand : p.hand.slice(2))),
+          pendingBuyIn: p.pendingBuyIn || 0,
           split: split ? {
             head: split.head,
             tail: split.tail,

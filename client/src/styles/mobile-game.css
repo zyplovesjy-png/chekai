@@ -1,13 +1,12 @@
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --room-max-width: 480px;
-  --bottom-action-height: 92px;
+  --room-max-width: 430px;
   --card-w: 44px;
   --card-h: 62px;
 }
 
-/* ========== 响应式 ========== */
+/* ========== 响应式（大厅等非房间页） ========== */
 @media (max-width: 600px) {
   .title { font-size: 18px; letter-spacing: 4px; }
   .topbar { padding: 10px 12px; }
@@ -15,150 +14,8 @@
   .hint { font-size: 11px; }
 }
 
-.room-page.new-table {
+/* 茶馆房间由 room.css .tea-room 接管，此处不再覆盖布局 */
+.room-page.tea-room {
   max-width: var(--room-max-width);
-  padding-top: var(--safe-top);
-}
-
-.game-area {
-  min-height: 0;
-  isolation: isolate;
-}
-
-.bottom-bar {
-  min-height: var(--bottom-action-height);
-  padding-bottom: calc(12px + var(--safe-bottom));
-}
-
-.action-buttons .btn {
-  min-height: 44px;
-  min-width: 56px;
-  border-radius: 8px;
-}
-
-/* 菜单按钮不压缩 */
-.bottom-bar .menu-btn {
-  flex-shrink: 0;
-}
-
-/* 金额输入+快捷按钮行 */
-.amount-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.quick-amount {
-  display: flex;
-  gap: 4px;
-}
-.quick-amount .btn {
-  min-height: 36px;
-  min-width: 36px;
-  padding: 2px 6px;
-  font-size: 11px;
-  border-radius: 6px;
-}
-
-/* 加注/叫分输入框 - 触摸友好 */
-.raise-input {
-  width: 64px;
-  min-height: 44px;
-  padding: 4px 8px;
-  border: 1px solid rgba(212, 175, 55, 0.4);
-  background: rgba(0, 0, 0, 0.35);
-  color: var(--gold);
-  border-radius: 8px;
-  font-size: 14px;
-  text-align: center;
-  outline: none;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.raise-input:focus { border-color: var(--gold); }
-
-/* 自己手牌区域 - 在 game-area 内部底部留少量间距 */
-.my-hand-area {
-  bottom: 4px;
-}
-/* Room sketch action layout overrides loaded after room.css. */
-.room-page.new-table .bottom-bar {
-  height: 42px;
-  min-height: 42px;
-  max-height: 42px;
-  padding: 4px 6px 6px;
-  box-sizing: border-box;
-}
-
-.room-page.new-table .bottom-btn {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0;
-  align-self: center;
-}
-
-.room-page.new-table .action-buttons .btn.start-game-btn {
-  width: min(124px, 100%);
-  min-width: 0;
-  min-height: 26px;
-  height: 30px;
-  padding: 3px 12px;
-}
-
-.room-page.new-table .turn-action-panel {
-  bottom: calc(42px + env(safe-area-inset-bottom));
-}
-
-.room-page.new-table .turn-action-panel .action-orb,
-.room-page.new-table .turn-action-panel .btn.action-orb,
-.room-page.new-table .turn-action-panel .bet-main-actions .btn.action-orb,
-.room-page.new-table .turn-action-panel .split-action-layout .btn.action-orb {
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  max-height: 44px;
-  padding: 0;
-  border-radius: 999px;
-  font-size: 18px;
-  line-height: 1;
-}
-
-.room-page.new-table .turn-wager-panel .wager-slider {
-  min-width: 0;
-}
-
-.room-page.new-table.action-open .my-hand-area {
-  bottom: 82px;
-}
-
-/* Final mobile override: action controls must not cover cards or own chips. */
-.room-page.new-table.action-open .turn-action-panel {
-  bottom: calc(42px + env(safe-area-inset-bottom));
-}
-
-.room-page.new-table.action-open .my-hand-area {
-  bottom: calc(42px + 148px + 12px + env(safe-area-inset-bottom));
-  z-index: 12;
-}
-
-.room-page.new-table.action-open .seat-vpos-4.is-me,
-.room-page.new-table.action-open .self-seat-slot {
-  bottom: calc(42px + 148px + 74px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 13;
-  width: 96px;
-}
-
-@media (max-height: 680px) {
-  .room-page.new-table.action-open .my-hand-area {
-    bottom: calc(42px + 132px + 8px + env(safe-area-inset-bottom));
-  }
-  .room-page.new-table.action-open .seat-vpos-4.is-me,
-  .room-page.new-table.action-open .self-seat-slot {
-    bottom: calc(42px + 132px + 68px + env(safe-area-inset-bottom));
-  }
+  padding-top: 0;
 }

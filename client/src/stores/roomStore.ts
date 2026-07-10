@@ -25,7 +25,6 @@ export interface RoomInfo {
   minBuyIn: number;
   members: Member[];
   seats: (SeatPlayer | null)[];
-  gameType: string;
   gameStarted: boolean;
   gameRound: number;
   createdAt: number;

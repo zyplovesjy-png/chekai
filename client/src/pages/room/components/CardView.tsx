@@ -1,4 +1,5 @@
 ﻿import type { Card } from '@/stores/gameStore';
+import { cardBackUrl, cardImageUrl } from '../cardAssets';
 
 export function CardView({ card, faceDown, selected, mark, onClick, size = 'normal' }: {
   card?: Card;
@@ -8,28 +9,22 @@ export function CardView({ card, faceDown, selected, mark, onClick, size = 'norm
   onClick?: () => void;
   size?: 'small' | 'normal';
 }) {
-  if (faceDown || !card) {
-    return <div className={`card back ${size}`} onClick={onClick} />;
-  }
-
-  const colorClass = card.color === 'joker' ? 'joker' : card.color;
-  const cls = `card ${colorClass} ${size}${selected ? ' selected' : ''}${mark === 'head' ? ' head-mark' : mark === 'tail' ? ' tail-mark' : ''}`;
-
-  if (card.color === 'joker') {
-    return (
-      <div className={cls} onClick={onClick}>
-        <div className="rank">JK</div>
-        <div className="center-suit">\u2605</div>
-        <div className="suit">\u2605</div>
-      </div>
-    );
-  }
+  const showBack = faceDown || !card;
+  const src = showBack ? cardBackUrl() : cardImageUrl(card!);
+  const alt = showBack ? '牌背' : (card?.cnName || card?.rank || '牌');
+  const cls = [
+    'card',
+    'tea-card',
+    'img-card',
+    size,
+    selected ? 'selected' : '',
+    mark === 'head' ? 'head-mark' : mark === 'tail' ? 'tail-mark' : '',
+    showBack ? 'back' : '',
+  ].filter(Boolean).join(' ');
 
   return (
-    <div className={cls} onClick={onClick}>
-      <div className="rank">{card.rank}</div>
-      <div className="center-suit">{card.suit}</div>
-      <div className="suit">{card.suit}</div>
+    <div className={cls} onClick={onClick} title={showBack ? undefined : card?.cnName}>
+      <img className="card-art" src={src} alt={alt} draggable={false} />
     </div>
   );
 }

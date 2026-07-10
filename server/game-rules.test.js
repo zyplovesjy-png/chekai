@@ -13,7 +13,7 @@ function makeSeat(username, buyIn) {
 }
 
 function makeEngine(buyIns = [100, 120, 100], extraBuyIns = []) {
-  const room = { code: 'TST', gameType: '1,3', seats: Array(8).fill(null) };
+  const room = { code: 'TST', minBuyIn: 100, seats: Array(8).fill(null) };
   room.seats[0] = makeSeat('p1', buyIns[0]);
   room.seats[1] = makeSeat('p2', buyIns[1]);
   room.seats[2] = makeSeat('p3', buyIns[2]);
@@ -130,6 +130,37 @@ run('banker rotates in the same order as player actions', () => {
   assert.strictEqual(engine.players[engine.state.bankerIdx].username, 'p2');
   engine.rotateBanker();
   assert.strictEqual(engine.players[engine.state.bankerIdx].username, 'p3');
+});
+
+run('street opener ties break by first-round speak order (not near-banker)', () => {
+  // 座位逆时针 a b c d e，b 庄 → 第一轮 cdeab；d、a 并列最大 → d 先 → deabc
+  const room = { code: 'ORD', minBuyIn: 100, seats: Array(8).fill(null) };
+  ['a', 'b', 'c', 'd', 'e'].forEach((u, i) => { room.seats[i] = makeSeat(u, 100); });
+  const eng = new GameEngine(room);
+  assert.strictEqual(eng.init(room.seats), true);
+  eng.state.bankerIdx = 1;
+  assert.strictEqual(eng.startNewRound(), true);
+  assert.deepStrictEqual(
+    eng.firstRoundSpeakOrder().map((i) => eng.players[i].username),
+    ['c', 'd', 'e', 'a', 'b'],
+  );
+
+  const by = (id) => cardById(id);
+  ['a', 'b', 'c', 'd', 'e'].forEach((u) => {
+    eng.getPlayer(u).hand = [by('b51'), by('b52'), null];
+  });
+  eng.getPlayer('d').hand[2] = by('rQ1');
+  eng.getPlayer('a').hand[2] = by('rQ2');
+  eng.getPlayer('c').hand[2] = by('b71');
+  eng.getPlayer('b').hand[2] = by('b72');
+  eng.getPlayer('e').hand[2] = by('b81');
+
+  assert.strictEqual(eng.findOpenerWithTieBreak(2), 'd');
+  const openerIdx = eng.players.indexOf(eng.getPlayer('d'));
+  assert.deepStrictEqual(
+    eng.activeIndicesCCW(openerIdx).map((i) => eng.players[i].username),
+    ['d', 'e', 'a', 'b', 'c'],
+  );
 });
 
 /* ========== 喊价模型 ========== */
@@ -371,6 +402,57 @@ run('declared sanhua voids shout without paying; opening pot stays', () => {
   assertConservation(engine, baseline);
 });
 
+run('sanhua alone without any fold does not trigger beat mango', () => {
+  const engine = makeEngine([200, 200, 200]);
+  const baseline = totalChips(engine);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+
+  engine.doCall(p2, 20);
+  engine.doSee(p3);
+  engine.doSee(p1);
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+  engine.dealThirdCard();
+
+  // p2、p3 依次亮三花退出，无人弃牌 → 不揍芒
+  for (const p of [p2, p3]) {
+    p.hand = [
+      { cnName: '梅十', order: 10, suit: '♣' },
+      { cnName: '苕十', order: 10, suit: '♥' },
+      { cnName: '斧头', order: 11, suit: '♠' },
+      { cnName: '黑8', order: 8, suit: '♠' },
+    ];
+  }
+  engine.state.phase = 'betting2';
+  engine.state.toAct = [p2.username, p3.username, p1.username];
+  engine.state.roundHadBet = true;
+
+  assert.ok(engine.doShowSanhua(p2));
+  assert.strictEqual(engine.checkBettingDone().done, false);
+  assert.ok(engine.doShowSanhua(p3));
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p1' });
+  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(engine.state.beatMangoWinner, null);
+  assertConservation(engine, baseline);
+});
+
+run('fold after bet still triggers beat mango', () => {
+  const engine = makeEngine([200, 200, 200]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+
+  engine.doCall(p2, 20);
+  engine.doFold(p3);
+  engine.doFold(p1);
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p2' });
+  assert.strictEqual(engine.state.restMangoLevel, 1);
+  assert.strictEqual(engine.state.beatMangoWinner, 'p2');
+});
+
 /* ========== 结算场景（1.4 / 1.5） ========== */
 
 function setupCompare(engine, commits, potPi, hands) {
@@ -595,7 +677,7 @@ run('scenario 12: full elements with fold money in pot', () => {
 });
 
 run('spec 2.2 standard shouting flow and skip street 3', () => {
-  const room = { code: 'T22', gameType: '1,3', seats: Array(8).fill(null) };
+  const room = { code: 'T22', minBuyIn: 100, seats: Array(8).fill(null) };
   room.seats[0] = makeSeat('甲', 100);
   room.seats[1] = makeSeat('乙', 120);
   room.seats[2] = makeSeat('丙', 80);
@@ -660,6 +742,25 @@ run('addBuyIn is pending until applied between rounds', () => {
   engine.addBuyIn('p2', 50);
   assert.strictEqual(p2.pot, before);
   assert.strictEqual(p2.pendingBuyIn, 50);
+});
+
+run('pickSplitByPair auto-assigns stronger pair as head', () => {
+  const engine = makeEngine([100, 100, 100]);
+  const p1 = player(engine, 'p1');
+  // QQ45：选 45 也应得到头 QQ、尾 45
+  p1.hand = ['rQ1', 'rQ2', 'r41', 'b51'].map(cardById);
+  const chosenTail = engine.pickSplitByPair(p1.hand, [2, 3]);
+  assert.ok(chosenTail);
+  assert.deepStrictEqual([...chosenTail.headIdx].sort((a, b) => a - b), [0, 1]);
+  assert.deepStrictEqual(chosenTail.head.map((c) => c.id).sort(), ['rQ1', 'rQ2']);
+  assert.deepStrictEqual(chosenTail.tail.map((c) => c.id).sort(), ['b51', 'r41']);
+
+  // 选 QQ 也应得到同一配法
+  const chosenHead = engine.pickSplitByPair(p1.hand, [0, 1]);
+  assert.ok(chosenHead);
+  assert.deepStrictEqual([...chosenHead.headIdx].sort((a, b) => a - b), [0, 1]);
+  assert.strictEqual(chosenHead.headEval.name, chosenTail.headEval.name);
+  assert.strictEqual(chosenHead.tailEval.name, chosenTail.tailEval.name);
 });
 
 console.log('\nAll game-rules tests finished.');

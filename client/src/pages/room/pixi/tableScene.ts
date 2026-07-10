@@ -93,10 +93,36 @@ export function createPixiTableScene(runtime: PixiRuntime): PixiTableScene {
     if (reducedMotion || !lastGeometry) return;
 
     const geometry = lastGeometry;
-    const source = geometry.seats[event.visualSeatIndex];
-    if (!source) return;
+    const seatPoint = (idx?: number) => {
+      if (idx == null || idx < 0) return null;
+      return geometry.seats[idx] || null;
+    };
+    // 座位旁喊价落点：略向桌心偏移
+    const betPoint = (idx?: number) => {
+      const s = seatPoint(idx);
+      if (!s) return null;
+      return {
+        x: s.x + (geometry.center.x - s.x) * 0.28,
+        y: s.y + (geometry.center.y - s.y) * 0.28,
+      };
+    };
 
-    const destination = geometry.pot;
+    let source = geometry.pot;
+    let destination = geometry.pot;
+    if (event.kind === 'to_seat_bet') {
+      source = seatPoint(event.fromVisualSeat) || geometry.pot;
+      destination = betPoint(event.toVisualSeat ?? event.fromVisualSeat) || geometry.pot;
+    } else if (event.kind === 'to_pot') {
+      source = betPoint(event.fromVisualSeat) || seatPoint(event.fromVisualSeat) || geometry.pot;
+      destination = geometry.pot;
+    } else if (event.kind === 'seat_to_seat') {
+      source = betPoint(event.fromVisualSeat) || seatPoint(event.fromVisualSeat) || geometry.pot;
+      destination = betPoint(event.toVisualSeat) || seatPoint(event.toVisualSeat) || geometry.pot;
+    } else if (event.kind === 'pot_to_seat') {
+      source = geometry.pot;
+      destination = betPoint(event.toVisualSeat) || seatPoint(event.toVisualSeat) || geometry.pot;
+    }
+
     Array.from({ length: 3 }, (_, index) => index).forEach((index) => {
       const chip = new runtime.Graphics();
       drawChip(chip, 0, 0, 7);

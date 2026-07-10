@@ -1,55 +1,77 @@
-﻿import { useGameStore, type GamePlayer } from '@/stores/gameStore';
+﻿import type { GamePlayer } from '@/stores/gameStore';
 import { TURN_TIME_SECONDS } from '../constants';
 
-export function Avatar({ nickname, avatarPath, size = 56, timer, isKnocked }: {
+export function getTimerUrgency(timer?: number | null, max = TURN_TIME_SECONDS): '' | 'urgent' | 'critical' {
+  if (timer == null || timer < 0 || max <= 0) return '';
+  const ratio = timer / max;
+  if (ratio <= 0.2) return 'critical';
+  if (ratio <= 0.4) return 'urgent';
+  return '';
+}
+
+export function Avatar({ nickname, avatarPath, size = 38, timer, isKnocked, urgency = '' }: {
   nickname: string;
   avatarPath?: string;
   size?: number;
   timer?: number;
   isKnocked?: boolean;
+  urgency?: '' | 'urgent' | 'critical';
 }) {
   const initial = nickname?.[0] || '?';
+  const ringSize = size + 10;
+  const r = size / 2 + 2;
+  const circ = 2 * Math.PI * r;
+  const ratio = timer != null && timer >= 0 ? Math.max(0, Math.min(1, timer / TURN_TIME_SECONDS)) : 1;
+  const stroke = urgency === 'critical'
+    ? 'var(--timer-crit, #ff4d4d)'
+    : urgency === 'urgent'
+      ? 'var(--timer-warn, #ff8a3d)'
+      : 'var(--timer, #2ee6c8)';
+
   return (
-    <div className="avatar-wrap" style={{ width: size, height: size }}>
+    <div className={`avatar-wrap${urgency ? ` ${urgency}` : ''}`} style={{ width: size, height: size }}>
+      {isKnocked && (
+        <div className="flame" aria-hidden="true">
+          <span /><span /><span />
+        </div>
+      )}
       {isKnocked && <div className="burning-effect" />}
-      <div className="avatar" style={{ width: size, height: size }}>
-        {avatarPath ? <img src={avatarPath} alt="" /> : <span>{initial}</span>}
-      </div>
       {timer != null && timer >= 0 && (
-        <svg className="timer-ring" width={size + 8} height={size + 8} style={{ top: -4, left: -4 }}>
+        <svg className="timer-ring" width={ringSize} height={ringSize} viewBox={`0 0 ${ringSize} ${ringSize}`}>
           <circle
-            cx={(size + 8) / 2}
-            cy={(size + 8) / 2}
-            r={size / 2}
+            cx={ringSize / 2}
+            cy={ringSize / 2}
+            r={r}
             fill="none"
-            stroke="rgba(212,175,55,0.3)"
-            strokeWidth={3}
+            stroke="rgba(46,230,200,0.18)"
+            strokeWidth={size <= 28 ? 2.5 : 3}
           />
           <circle
-            cx={(size + 8) / 2}
-            cy={(size + 8) / 2}
-            r={size / 2}
+            className="timer-ring-fg"
+            cx={ringSize / 2}
+            cy={ringSize / 2}
+            r={r}
             fill="none"
-            stroke="#d4af37"
-            strokeWidth={3}
+            stroke={stroke}
+            strokeWidth={size <= 28 ? 2.5 : 3}
             strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * (size / 2)}`}
-            strokeDashoffset={`${2 * Math.PI * (size / 2) * (1 - timer / TURN_TIME_SECONDS)}`}
-            transform={`rotate(-90 ${(size + 8) / 2} ${(size + 8) / 2})`}
+            strokeDasharray={`${circ}`}
+            strokeDashoffset={`${circ * (1 - ratio)}`}
+            transform={`rotate(-90 ${ringSize / 2} ${ringSize / 2})`}
           />
         </svg>
       )}
-      {timer != null && timer >= 0 && (
-        <div className="timer-text">{timer}</div>
-      )}
+      <div className="avatar" style={{ width: size, height: size }}>
+        {avatarPath ? <img src={avatarPath} alt="" /> : <span>{initial}</span>}
+      </div>
     </div>
   );
 }
 
 export function PlayerSeat({
   seat, physIdx, seatIdx, player, isMe, isMyTurn, gameStarted,
-  avatarPath, timer, onSit, onReady, isBanker, isHost,
-  isFolded, isDisconnected, isKnocked
+  avatarPath, timer, onSit, onReady: _onReady, isBanker, isHost: _isHost,
+  isFolded, isDisconnected, isKnocked, brokeStatus,
 }: {
   seat: { username: string; nickname: string; buyIn: number; ready?: boolean; avatar_path?: string } | null;
   physIdx: number;
@@ -67,89 +89,87 @@ export function PlayerSeat({
   isFolded?: boolean;
   isDisconnected?: boolean;
   isKnocked?: boolean;
+  brokeStatus?: 'pending' | 'rebought' | 'exited' | null;
 }) {
   const seatNum = physIdx + 1;
-  const bankerHighlight = useGameStore((s) => s.bankerHighlight);
-  const isHighlight = seat ? bankerHighlight === seat.username : false;
+  const totalPot = (player?.pot ?? seat?.buyIn ?? 0) + (player?.committed || 0);
+  const brokeClass = brokeStatus === 'pending'
+    ? ' broke-pending'
+    : brokeStatus === 'rebought'
+      ? ' broke-rebought'
+      : brokeStatus === 'exited'
+        ? ' broke-exited'
+        : '';
+  const brokeBadgeText = brokeStatus === 'pending'
+    ? '待加簸'
+    : brokeStatus === 'rebought'
+      ? '已加簸'
+      : brokeStatus === 'exited'
+        ? '已退出'
+        : '';
+
   if (seat && isMe) {
-    return (
-      <div className={`seat-slot seat-vpos-${seatIdx} is-me self-seat-slot`}>
-        <div className="seat-box self-seat-box">
-          <div className="seat-name">{seat.nickname}</div>
-          <div className={`self-chip-stack${isMyTurn ? ' turn-active' : ''}`}>
-            <span className="chip-dot" />
-            <strong>{player?.pot ?? seat.buyIn}</strong>
-          </div>
-          {gameStarted && !!player?.committed && player.committed > 0 && (
-            <div className="seat-bet-chip" aria-label={`${seat.nickname}喊价${player.committed}`}>
-              <span className="chip-dot" />
-              <span>{player.committed}</span>
-            </div>
-          )}
-          {player?.sanhuaShown && <div className="sanhua-badge">三花</div>}
-          {!gameStarted && !isHost && (
-            <button className="ready-btn" onClick={onReady}>{seat.ready ? '\u53d6\u6d88' : '\u51c6\u5907'}</button>
-          )}
-          {!gameStarted && isHost && (
-            <div className="host-tag">{"\u623f\u4e3b"}</div>
-          )}
-        </div>
-      </div>
-    );
+    return <div className={`seat-slot seat-vpos-${seatIdx} is-me self-seat-slot seat-hidden`} aria-hidden="true" />;
   }
 
   if (seat) {
+    const showTimer = isMyTurn && timer != null && timer >= 0;
+    const urgency = showTimer ? getTimerUrgency(timer) : '';
     return (
-      <div className={`seat-slot seat-vpos-${seatIdx}${isMe ? ' is-me' : ''}`}>
-        <div className="seat-box">
-          <div className="seat-name">{seat.nickname}</div>
-          <div className={`seat-avatar-row${isHighlight ? ' banker-highlight' : ''}${isFolded ? ' folded' : ''}${isDisconnected ? ' disconnected' : ''}${isMyTurn ? ' turn-active' : ''}${isKnocked ? ' knocked' : ''}${!gameStarted && !isMe && seat.ready ? ' ready' : ''}`}>
-            <Avatar nickname={seat.nickname} avatarPath={seat.avatar_path || avatarPath} size={isMe ? 58 : 42} timer={isMyTurn ? timer : undefined} isKnocked={isKnocked} />
-            {isBanker && <span className="banker-badge">庄</span>}
-            {isFolded && <span className="fold-badge">弃</span>}
-            {player?.sanhuaShown && <span className="sanhua-badge">三花</span>}
-            {isDisconnected && <span className="disconnect-badge">离</span>}
-          </div>
-          <div className="seat-stack-row">
-            <span className="seat-stack-label">簸</span>
-            <span className="seat-score">{player?.pot ?? seat.buyIn}</span>
-          </div>
-          {gameStarted && !!player?.committed && player.committed > 0 && (
-            <div className="seat-bet-chip" aria-label={`${seat.nickname}喊价${player.committed}`}>
-              <span className="chip-dot" />
-              <span>{player.committed}</span>
-            </div>
-          )}
-          {!gameStarted && isMe && !isHost && (
-            <button className="ready-btn" onClick={onReady}>{seat.ready ? '取消' : '准备'}</button>
-          )}
-          {!gameStarted && !isMe && seat.ready && (
-            <div className="ready-mark">已准备</div>
-          )}
-          {!gameStarted && isHost && isMe && (
-            <div className="host-tag">房主</div>
-          )}
+      <div
+        className={[
+          `seat-slot seat-vpos-${seatIdx} tea-seat`,
+          isFolded ? 'fold' : '',
+          isMyTurn ? 'turn' : '',
+          urgency,
+          isKnocked ? 'knock' : '',
+          brokeClass,
+          isDisconnected ? 'disconnected' : '',
+          !gameStarted && seat.ready ? 'ready' : '',
+        ].filter(Boolean).join(' ')}
+      >
+        <div className={`timer-num${showTimer ? ' show' : ''}`}>{showTimer ? timer : '\u00a0'}</div>
+        <div className="seat-name name">{seat.nickname}</div>
+        <div className="avatar-wrap-outer">
+          <Avatar
+            nickname={seat.nickname}
+            avatarPath={seat.avatar_path || avatarPath}
+            size={38}
+            timer={isMyTurn ? timer : undefined}
+            isKnocked={isKnocked}
+            urgency={urgency}
+          />
+          {isBanker && <span className="banker-badge badge">庄</span>}
+          {isFolded && <span className="fold-badge">弃</span>}
+          {player?.sanhuaShown && <span className="sanhua-badge">三花</span>}
+          {isDisconnected && <span className="disconnect-badge">离</span>}
+          {brokeBadgeText && <span className="broke-badge">{brokeBadgeText}</span>}
         </div>
+        <div className="seat-stack-row stack">
+          <span className="seat-score">{totalPot}</span>
+        </div>
+        {!gameStarted && seat.ready && (
+          <div className="ready-mark">已准备</div>
+        )}
       </div>
     );
   }
 
   if (gameStarted) {
     return (
-      <div className={`seat-slot seat-vpos-${seatIdx}`}>
+      <div className={`seat-slot seat-vpos-${seatIdx} tea-seat`}>
         <div className="empty-seat">
-          <div className="empty-avatar">空</div>
-          <div className="empty-num">{seatNum}</div>
+          <div className="empty-avatar seat-num-avatar">{seatNum}</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`seat-slot seat-vpos-${seatIdx}`}>
+    <div className={`seat-slot seat-vpos-${seatIdx} tea-seat`}>
       <div className="empty-seat" onClick={() => onSit(seatIdx)}>
-        <div className="empty-avatar">坐下</div>
-        <div className="empty-num">{seatNum}</div>
+        <div className="empty-avatar seat-num-avatar">{seatNum}</div>
+        <div className="empty-sit-hint">坐下</div>
       </div>
     </div>
   );

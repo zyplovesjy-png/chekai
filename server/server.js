@@ -9,13 +9,14 @@ const { login, verifyToken, authMiddleware, getProfile, setAvatar, listUsers } =
 const {
   roomsByCode, createRoom, joinRoom, getRoomInfo,
   setSeatReady, startGame, leaveRoom, broadcastRoom,
-  sitDown, standUp, setGameType, finishRound,
+  sitDown, standUp, finishRound,
   getRoomByCode, getRoomsByCreator,
   markDisconnected, handleReconnect,
 } = require('./rooms');
 const { GameEngine } = require('./game');
 const { resolveAllInShowdown } = require('./betting-flow');
 const { saveGameRecord, getUserStats, getAllUserStats, getUserGameHistory } = require('./db');
+const { attachLogger, getLogger } = require('./game-logger');
 
 const app = express();
 const server = http.createServer(app);
@@ -109,6 +110,7 @@ function startTurnTimer(room) {
     const p = engine2.getPlayer(actor);
     if (!p || p.folded) return;
 
+    const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
     let result;
     if (engine2.canRestNow()) {
       result = engine2.doRest(p);
@@ -116,6 +118,7 @@ function startTurnTimer(room) {
       result = engine2.doFold(p);
     }
     if (!result) return;
+    getLogger(room)?.logAction(engine2, result, { timeout: true, before });
     sendToRoom(room, { type: 'game_action', action: { ...result, timeout: true } });
     s2.toAct.shift();
     engine2.advanceToAct();
@@ -139,6 +142,8 @@ function startTurnTimer(room) {
           leftAt: Date.now(),
         };
         room.seats[seatIdx] = null;
+        if (engine2.rebuildPlayersFromSeats) engine2.rebuildPlayersFromSeats(room.seats);
+        getLogger(room)?.logDisconnect('timeout_remove', actor, { finalPot: room.chipArchives[actor].finalPot });
         sendToRoom(room, { type: 'player_timeout', username: actor });
         broadcastRoom(room);
       }
@@ -171,15 +176,154 @@ function startBankerSelection(room) {
     setTimeout(() => {
       if (!room.game) return;
       if (engine.startNewRound()) {
+        const log = getLogger(room);
+        log?.logRoundStart(engine);
+        log?.logDeal(engine, 1);
         broadcastRoundState(room);
       }
     }, 1500);
   }, 3000);
 }
 
+function getSeatedEnginePlayers(room) {
+  if (!room.game) return [];
+  return room.seats
+    .map(s => (s ? room.game.getPlayer(s.username) : null))
+    .filter(Boolean);
+}
+
+function archiveAndRemoveSeat(room, username) {
+  const engine = room.game;
+  const p = engine?.getPlayer(username);
+  const seatIdx = room.seats.findIndex(s => s && s.username === username);
+  if (seatIdx < 0 && !p) return;
+  if (!room.chipArchives) room.chipArchives = {};
+  room.chipArchives[username] = {
+    username,
+    nickname: p?.nickname || room.seats[seatIdx]?.nickname || username,
+    initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || 0,
+    totalBuyIn: p?.totalBuyIn || room.seats[seatIdx]?.buyIn || 0,
+    finalPot: p ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)) : 0,
+    leftAt: Date.now(),
+  };
+  if (seatIdx >= 0) room.seats[seatIdx] = null;
+  if (p) p.eliminated = true;
+  getLogger(room)?.logDisconnect('broke_exit', username, {
+    finalPot: room.chipArchives[username].finalPot,
+  });
+}
+
+function buildBuyInDecisionPayload(room) {
+  const decision = room.awaitingBuyInDecision;
+  if (!decision) return null;
+  const pending = decision.players.filter(p => !p.choice);
+  const pendingNames = pending.map(p => p.nickname || p.username);
+  return {
+    type: 'awaiting_buyin_decision',
+    players: decision.players.map(p => ({
+      username: p.username,
+      nickname: p.nickname,
+      choice: p.choice,
+      amount: p.amount,
+    })),
+    pending: pending.map(p => p.username),
+    waitingText: pendingNames.length
+      ? `等待 ${pendingNames.join('、')} 加簸或退出…`
+      : '正在处理…',
+  };
+}
+
+function broadcastBuyInDecision(room) {
+  const payload = buildBuyInDecisionPayload(room);
+  if (!payload) return;
+  sendToRoom(room, payload);
+  broadcastRoundState(room);
+  broadcastRoom(room);
+}
+
+/** 局间：有人输光且「有筹码在座」将不足 2 人 → 进入加簸/退出决策 */
+function startBrokeBuyInDecision(room, brokePlayers) {
+  brokePlayers.forEach(p => { p.eliminated = false; });
+  room.awaitingBuyInDecision = {
+    players: brokePlayers.map(p => ({
+      username: p.username,
+      nickname: p.nickname,
+      choice: null,
+      amount: null,
+    })),
+  };
+  getLogger(room)?.logBuyInDecisionStart?.(
+    room.awaitingBuyInDecision.players.map(p => p.username),
+  );
+  broadcastBuyInDecision(room);
+}
+
+function finishBrokeBuyInDecision(room) {
+  const decision = room.awaitingBuyInDecision;
+  if (!decision) return;
+  decision.players.forEach(entry => {
+    if (entry.choice === 'settle') {
+      archiveAndRemoveSeat(room, entry.username);
+    }
+  });
+  room.awaitingBuyInDecision = null;
+  sendToRoom(room, { type: 'buyin_decision_cleared' });
+  if (room.game?.rebuildPlayersFromSeats) {
+    room.game.rebuildPlayersFromSeats(room.seats);
+  }
+  broadcastRoom(room);
+  startNextRoundAuto(room, { skipBrokeDecision: true });
+}
+
+function handleBrokePlayerDecision(room, username, choice, amount) {
+  const decision = room.awaitingBuyInDecision;
+  if (!decision || !room.game) return { ok: false, msg: '当前无需决策' };
+  const entry = decision.players.find(p => p.username === username);
+  if (!entry) return { ok: false, msg: '你不在待决策名单中' };
+  if (entry.choice) return { ok: false, msg: '你已经选择过了' };
+
+  if (choice === 'settle') {
+    entry.choice = 'settle';
+    entry.amount = null;
+    getLogger(room)?.logDisconnect('broke_choose_settle', username);
+  } else if (choice === 'continue') {
+    const n = Math.floor(Number(amount) || 0);
+    if (n <= 0) return { ok: false, msg: '请先选择加簸金额' };
+    const engine = room.game;
+    engine.addBuyIn(username, n);
+    const p = engine.getPlayer(username);
+    if (p && p.pendingBuyIn > 0) {
+      p.pot += p.pendingBuyIn;
+      p.totalBuyIn = (p.totalBuyIn || 0) + p.pendingBuyIn;
+      const applied = p.pendingBuyIn;
+      p.pendingBuyIn = 0;
+      p.eliminated = false;
+      getLogger(room)?.logBuyIn(username, applied, {
+        pending: false, applied: true, reason: 'buyin_decision_continue',
+      });
+      // 同步座位显示
+      const seat = room.seats.find(s => s && s.username === username);
+      if (seat) seat.buyIn = p.pot;
+    }
+    entry.choice = 'continue';
+    entry.amount = n;
+  } else {
+    return { ok: false, msg: '无效选择' };
+  }
+
+  broadcastBuyInDecision(room);
+
+  const allDone = decision.players.every(p => !!p.choice);
+  if (allDone) {
+    finishBrokeBuyInDecision(room);
+  }
+  return { ok: true };
+}
+
 // 游戏结束并发送结算
 function endGameAndSendSettlement(room, reason) {
   if (!room.game) return;
+  room.awaitingBuyInDecision = null;
   const engine = room.game;
   engine.state.phase = 'gameover';
   engine.syncSeatBuyIns();
@@ -192,15 +336,16 @@ function endGameAndSendSettlement(room, reason) {
   initialBuyIns.forEach(initial => {
     const p = playerMap.get(initial.username);
     const archive = (room.chipArchives || {})[initial.username];
+    // 仍在局内的玩家：pot 可能含未结算喊价预扣，结算时一并计入
     const finalPot = p
-      ? p.pot + (p.pendingBuyIn || 0)
+      ? p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)
       : (archive ? archive.finalPot : initial.buyIn);
     const totalBuyIn = p
       ? (p.totalBuyIn || initial.buyIn)
       : (archive ? archive.totalBuyIn : initial.buyIn);
     settlementMap.set(initial.username, {
       username: initial.username,
-      nickname: initial.nickname,
+      nickname: initial.nickname || p?.nickname || initial.username,
       initial: totalBuyIn,
       final: finalPot,
       delta: finalPot - totalBuyIn,
@@ -220,6 +365,10 @@ function endGameAndSendSettlement(room, reason) {
   });
 
   const settlement = [...settlementMap.values()];
+  const log = getLogger(room);
+  log?.logSessionEnd(settlement, reason);
+  log?.close();
+  room.logger = null;
   sendToRoom(room, { type: 'game_settlement', settlement, reason });
 
   room.game = null;
@@ -232,9 +381,19 @@ function endGameAndSendSettlement(room, reason) {
 }
 
 // 庄家轮转并开始下一局
-function startNextRoundAuto(room) {
+function startNextRoundAuto(room, opts = {}) {
   if (!room.game) return;
+  if (room.awaitingBuyInDecision && !opts.skipBrokeDecision) return;
   if (room.nextRoundTimer) { clearTimeout(room.nextRoundTimer); room.nextRoundTimer = null; }
+
+  // 掉线导致在座不足 / 强制结束
+  if (room.forceEndGame || room.pendingEndReason === 'players') {
+    const reason = room.pendingEndReason || 'players';
+    room.forceEndGame = false;
+    room.pendingEndReason = null;
+    endGameAndSendSettlement(room, reason);
+    return;
+  }
 
   // 达到总局数，结束游戏
   if (room.gameRound >= room.roundLimit) {
@@ -244,49 +403,35 @@ function startNextRoundAuto(room) {
 
   const engine = room.game;
 
-  // 应用待加簸，处理破产离座
+  // 应用待加簸
   engine.players.forEach(p => {
     if (p.pendingBuyIn > 0) {
+      const applied = p.pendingBuyIn;
       p.pot += p.pendingBuyIn;
       p.totalBuyIn = (p.totalBuyIn || 0) + p.pendingBuyIn;
       p.pendingBuyIn = 0;
       p.eliminated = false;
+      getLogger(room)?.logBuyIn(p.username, applied, {
+        pending: false, applied: true, reason: 'next_round_apply',
+      });
     }
   });
 
-  // 两人局一人输光：暂停并弹窗
-  const seatedAlive = engine.players.filter(p => !p.eliminated);
-  const broke = seatedAlive.filter(p => p.pot <= 0);
-  if (seatedAlive.length === 2 && broke.length === 1) {
-    room.awaitingBuyInDecision = {
-      brokeUsername: broke[0].username,
-      options: ['continue', 'settle'],
-    };
-    sendToRoom(room, {
-      type: 'awaiting_buyin_decision',
-      brokeUsername: broke[0].username,
-      brokeNickname: broke[0].nickname,
-    });
-    broadcastRoundState(room);
-    return;
+  if (!opts.skipBrokeDecision) {
+    const seatedPlayers = getSeatedEnginePlayers(room);
+    const broke = seatedPlayers.filter(p => p.pot <= 0 && (p.pendingBuyIn || 0) <= 0);
+    const fundedCount = seatedPlayers.filter(p => p.pot > 0 || (p.pendingBuyIn || 0) > 0).length;
+    // 未满总局数，且输光离座后将不足 2 人 → 弹窗让输光者加簸/退出
+    if (broke.length > 0 && fundedCount < 2) {
+      startBrokeBuyInDecision(room, broke);
+      return;
+    }
   }
 
   // 下局开始时簸簸仍为 0 且未加簸 → 自动离座
   engine.players.forEach(p => {
     if (p.pot > 0 || p.pendingBuyIn > 0) return;
-    const seatIdx = room.seats.findIndex(s => s && s.username === p.username);
-    if (seatIdx < 0) return;
-    if (!room.chipArchives) room.chipArchives = {};
-    room.chipArchives[p.username] = {
-      username: p.username,
-      nickname: p.nickname,
-      initialBuyIn: (room.initialBuyIns || []).find(i => i.username === p.username)?.buyIn || 0,
-      totalBuyIn: p.totalBuyIn || 0,
-      finalPot: 0,
-      leftAt: Date.now(),
-    };
-    room.seats[seatIdx] = null;
-    p.eliminated = true;
+    archiveAndRemoveSeat(room, p.username);
   });
 
   if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
@@ -298,23 +443,16 @@ function startNextRoundAuto(room) {
   }
 
   engine.rotateBanker();
-  const banker = engine.players[engine.state.bankerIdx];
-  sendToRoom(room, {
-    type: 'banker_rotated',
-    banker: banker.username,
-    bankerIdx: engine.state.bankerIdx,
-    bankerName: banker.nickname,
-  });
-  // 2秒后开始发牌
+  // 轮庄不再单独播报；下一局状态里的 bankerUsername /「庄」标签即可
   room.gameRound++;
-  setTimeout(() => {
-    if (!room.game) return;
-    if (engine.startNewRound()) {
-      broadcastRoundState(room);
-    } else {
-      endGameAndSendSettlement(room, 'players');
-    }
-  }, 2000);
+  if (engine.startNewRound()) {
+    const log = getLogger(room);
+    log?.logRoundStart(engine);
+    log?.logDeal(engine, 1);
+    broadcastRoundState(room);
+  } else {
+    endGameAndSendSettlement(room, 'players');
+  }
 }
 
 /* ---------- 认证 ---------- */
@@ -358,6 +496,8 @@ app.get('/api/stats/:username', authMiddleware, (req, res) => {
 app.post('/api/rooms/create', authMiddleware, (req, res) => {
   const { name, roundLimit, minBuyIn } = req.body || {};
   const room = createRoom(req.user, { name, roundLimit, minBuyIn });
+  // createRoom 内已 attachLogger；房主进房记一条 member
+  getLogger(room)?.logMember('join', req.user);
   res.json({ ok: true, room: { code: room.code, name: room.name, host: room.host, roundLimit: room.roundLimit, minBuyIn: room.minBuyIn,
     members: room.members.map(m => ({ username: m.username, nickname: m.nickname })) }});
 });
@@ -408,7 +548,9 @@ app.post('/api/rooms/:code/start', authMiddleware, (req, res) => {
     .filter(s => s !== null)
     .map(s => ({ username: s.username, nickname: s.nickname, buyIn: s.buyIn }));
   if (room.game.init(room.seats)) {
-    sendToRoom(room, { type: 'game_init', gameType: room.gameType, gameRound: room.gameRound });
+    attachLogger(room);
+    getLogger(room)?.logGameStart(room.game);
+    sendToRoom(room, { type: 'game_init', gameRound: room.gameRound });
     // 启动选庄流程
     startBankerSelection(room);
   }
@@ -422,6 +564,9 @@ app.post('/api/rooms/:code/disband', authMiddleware, (req, res) => {
   if (room.host !== req.user.username) return res.json({ ok: false, msg: '只有房主可以解散房间' });
   clearTurnTimer(req.params.code);
   if (room.nextRoundTimer) { clearTimeout(room.nextRoundTimer); room.nextRoundTimer = null; }
+  getLogger(room)?.logSessionEnd([], 'disbanded');
+  getLogger(room)?.close();
+  room.logger = null;
   sendToRoom(room, { type: 'room_disbanded', msg: '房间已被房主解散' });
   for (const ws of room.ws) {
     try { ws.close(); } catch {}
@@ -435,25 +580,23 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
   const room = roomsByCode.get(req.params.code);
   if (!room) return res.json({ ok: true });
   const username = req.user.username;
+  let bettingDone = null;
 
-  // 如果游戏正在进行且该玩家是参与者，先自动弃牌
+  // 如果游戏正在进行且该玩家是参与者，先自动弃牌并归档
   if (room.game && room.game.state) {
     const engine = room.game;
     const s = engine.state;
     const p = engine.getPlayer(username);
-    // 自动弃牌并归档筹码
     if (p && !p.folded && s.activeIds.includes(username) &&
         !['idle','done','gameover'].includes(s.phase)) {
+      const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
       const result = engine.doFold(p);
       if (result) {
+        getLogger(room)?.logAction(engine, result, { leave: true, before });
         sendToRoom(room, { type: 'game_action', action: { ...result, leave: true } });
         s.toAct = s.toAct.filter(u => u !== username);
         engine.advanceToAct();
-        broadcastRoundState(room);
-        const done = engine.checkBettingDone();
-        if (done.done) {
-          handleBettingDone(room, engine, done);
-        }
+        bettingDone = engine.checkBettingDone();
       }
     }
     if (p) {
@@ -466,12 +609,30 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
         finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
         leftAt: Date.now(),
       };
+      getLogger(room)?.logDisconnect('leave', username, {
+        finalPot: room.chipArchives[username].finalPot,
+      });
     }
   }
 
-  // 执行退出
   const result = leaveRoom(req.params.code, username);
+  // 离座后立刻从引擎玩家列表移除，避免幽灵座位继续发牌
+  if (room.game && room.game.rebuildPlayersFromSeats) {
+    room.game.rebuildPlayersFromSeats(room.seats);
+  }
   if (result) broadcastRoom(result);
+  if (room.game) {
+    broadcastRoundState(room);
+    if (bettingDone && bettingDone.done) {
+      handleBettingDone(room, room.game, bettingDone);
+    } else {
+      // 离座后若在座不足 2 人且局间/已结束，提前总结算
+      const seated = room.seats.filter(s => s !== null).length;
+      if (seated < 2 && ['done', 'idle', 'gameover'].includes(room.game.state?.phase)) {
+        endGameAndSendSettlement(room, 'players');
+      }
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -504,25 +665,36 @@ app.post('/api/rooms/:code/add-buyin', authMiddleware, (req, res) => {
   if (room.game) {
     const result = room.game.addBuyIn(req.user.username, amount);
     if (!result) return res.json({ ok: false, msg: '加簸失败' });
-    sendToRoom(room, { type: 'buyin_pending', ...result });
+    const player = room.game.getPlayer(req.user.username);
+    const nickname = player?.nickname || req.user.nickname || req.user.username;
+    getLogger(room)?.logBuyIn(req.user.username, amount, { pending: true, ...result });
+    sendToRoom(room, {
+      type: 'buyin_pending',
+      username: req.user.username,
+      nickname,
+      amount,
+      pendingBuyIn: result.pendingBuyIn,
+      pending: true,
+    });
     broadcastRoundState(room);
-    return res.json({ ok: true, ...result });
+    return res.json({ ok: true, ...result, nickname });
   }
 
   const seat = room.seats.find(s => s && s.username === req.user.username);
   if (!seat) return res.json({ ok: false, msg: '你还没坐下' });
   seat.buyIn = (seat.buyIn || 0) + amount;
+  const nickname = seat.nickname || req.user.nickname || req.user.username;
+  getLogger(room)?.logBuyIn(req.user.username, amount, { pending: false, applied: true, buyIn: seat.buyIn });
+  sendToRoom(room, {
+    type: 'buyin_pending',
+    username: req.user.username,
+    nickname,
+    amount,
+    buyIn: seat.buyIn,
+    pending: false,
+  });
   broadcastRoom(room);
-  res.json({ ok: true, amount, buyIn: seat.buyIn });
-});
-
-app.post('/api/rooms/:code/gametype', authMiddleware, (req, res) => {
-  const { gameType } = req.body || {};
-  const result = setGameType(req.params.code, req.user.username, gameType);
-  if (!result.ok) return res.json(result);
-  const room = roomsByCode.get(req.params.code);
-  broadcastRoom(room);
-  res.json(result);
+  res.json({ ok: true, amount, buyIn: seat.buyIn, nickname });
 });
 
 /* ---------- WebSocket 游戏消息处理 ---------- */
@@ -560,43 +732,23 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'game_sync', state: priv }));
         // 如果是从断线恢复，通知其他玩家
         if (wasDisconnected) {
+          getLogger(room)?.logDisconnect('reconnect', payload.username);
           sendToRoom(room, { type: 'player_reconnected', username: payload.username });
         }
       }
+      // 重连时补发破产决策状态
+      if (room.awaitingBuyInDecision) {
+        const payloadDecision = buildBuyInDecisionPayload(room);
+        if (payloadDecision) ws.send(JSON.stringify(payloadDecision));
+      }
     }
 
-    // 两人局破产决策：加簸继续 / 立即结算
+    // 破产决策：加簸继续 / 立即退出（支持多人同时输光）
     if (msg.type === 'buyin_decision') {
       const room = roomsByCode.get(ws.currentRoomCode);
       if (!room || !room.game || !room.awaitingBuyInDecision) return;
-      const decision = room.awaitingBuyInDecision;
-      const engine = room.game;
-      const isBroke = ws.username === decision.brokeUsername;
-      const isHost = room.host === ws.username;
-      if (!isBroke && !isHost) return;
-
-      if (msg.choice === 'settle') {
-        room.awaitingBuyInDecision = null;
-        endGameAndSendSettlement(room, 'buyin_exit');
-        return;
-      }
-      if (msg.choice === 'continue') {
-        const amount = Math.floor(Number(msg.amount) || 0);
-        if (amount <= 0) {
-          sendError(ws, '请先加簸再继续');
-          return;
-        }
-        engine.addBuyIn(decision.brokeUsername, amount);
-        const broke = engine.getPlayer(decision.brokeUsername);
-        if (broke && broke.pendingBuyIn > 0) {
-          broke.pot += broke.pendingBuyIn;
-          broke.totalBuyIn = (broke.totalBuyIn || 0) + broke.pendingBuyIn;
-          broke.pendingBuyIn = 0;
-          broke.eliminated = false;
-        }
-        room.awaitingBuyInDecision = null;
-        startNextRoundAuto(room);
-      }
+      const result = handleBrokePlayerDecision(room, ws.username, msg.choice, msg.amount);
+      if (!result.ok) sendError(ws, result.msg || '操作失败');
     }
 
     // 开始新局（自动触发，也可手动触发）
@@ -632,6 +784,7 @@ wss.on('connection', (ws) => {
       const { action, amount } = msg;
       let result;
       const currentBetBefore = s.currentBet;
+      const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
 
       switch (action) {
         case 'rest':
@@ -643,15 +796,15 @@ wss.on('connection', (ws) => {
           break;
         case 'see':
           if (s.currentBet <= 0) { sendError(ws, '\u5f53\u524d\u6ca1\u6709\u53ef\u8ddf\u7684\u62db'); return; }
-          if (p.roundCommitted + p.pot < s.currentBet) { sendError(ws, '\u5206\u6570\u4e0d\u8db3\uff0c\u53ea\u80fd\u6572\u6216\u7529'); return; }
+          if (p.committed + p.pot < s.currentBet) { sendError(ws, '\u5206\u6570\u4e0d\u8db3\uff0c\u53ea\u80fd\u6572\u6216\u7529'); return; }
           result = engine.doSee(p);
           break;
         case 'raise': {
           const betAmount = parseBetAmount(amount);
           if (betAmount === null) { sendError(ws, '\u8fd4\u62db\u91d1\u989d\u5fc5\u987b\u662f\u6b63\u6574\u6570'); return; }
           if (betAmount <= s.currentBet) { sendError(ws, '\u8fd4\u62db\u91d1\u989d\u5fc5\u987b\u5927\u4e8e\u5f53\u524d\u62db'); return; }
-          if (betAmount < s.minBet) { sendError(ws, '\u672c\u8f6e\u6700\u4f4e\u4e0b\u6ce8\u4e3a ' + s.minBet); return; }
-          if (betAmount - p.roundCommitted > p.pot) { sendError(ws, '\u5206\u6570\u4e0d\u8db3'); return; }
+          if (!s.betStarted && betAmount < s.minBet) { sendError(ws, '\u672c\u8f6e\u6700\u4f4e\u4e0b\u6ce8\u4e3a ' + s.minBet); return; }
+          if (betAmount - p.committed > p.pot) { sendError(ws, '\u5206\u6570\u4e0d\u8db3'); return; }
           result = engine.doRaise(p, betAmount);
           break;
         }
@@ -659,8 +812,8 @@ wss.on('connection', (ws) => {
           const betAmount = parseBetAmount(amount);
           if (betAmount === null) { sendError(ws, '\u53eb\u5206\u91d1\u989d\u5fc5\u987b\u662f\u6b63\u6574\u6570'); return; }
           if (betAmount <= s.currentBet) { sendError(ws, '\u53eb\u5206\u91d1\u989d\u5fc5\u987b\u5927\u4e8e\u5f53\u524d\u62db'); return; }
-          if (betAmount < s.minBet) { sendError(ws, '\u672c\u8f6e\u6700\u4f4e\u4e0b\u6ce8\u4e3a ' + s.minBet); return; }
-          if (betAmount - p.roundCommitted > p.pot) { sendError(ws, '\u5206\u6570\u4e0d\u8db3'); return; }
+          if (!s.betStarted && betAmount < s.minBet) { sendError(ws, '\u672c\u8f6e\u6700\u4f4e\u4e0b\u6ce8\u4e3a ' + s.minBet); return; }
+          if (betAmount - p.committed > p.pot) { sendError(ws, '\u5206\u6570\u4e0d\u8db3'); return; }
           result = engine.doCall(p, betAmount);
           break;
         }
@@ -673,9 +826,9 @@ wss.on('connection', (ws) => {
       }
 
       if (!result) { sendError(ws, '\u65e0\u6548\u64cd\u4f5c'); return; }
-      if (!result) return;
 
       console.log(`[ACTION] ${ws.username} -> ${action}, betRound=${s.betRound}, betStarted=${s.betStarted}`);
+      getLogger(room)?.logAction(engine, result, { before });
 
       // 玩家操作了，重置不活跃计时
       if (s.playerInactivity && s.playerInactivity[ws.username]) {
@@ -712,18 +865,20 @@ wss.on('connection', (ws) => {
       if (!p) return;
 
       const { headIdx } = msg;
-      // 校验索引合法性
+      // 校验索引合法性（客户端传来的是点选的两张，后端自动判头尾）
       if (!Array.isArray(headIdx) || headIdx.length !== 2) return;
       const sortedIdx = [...headIdx].sort((a, b) => a - b);
       if (sortedIdx[0] < 0 || sortedIdx[1] > 3 || sortedIdx[0] === sortedIdx[1]) return;
-      // 从所有配法中找到匹配的配牌（自动分配头尾）
-      const splits = engine.getAllSplits(p.hand);
-      const chosen = splits.find(sp =>
-        sp.headIdx[0] === sortedIdx[0] && sp.headIdx[1] === sortedIdx[1]
-      );
+      const chosen = engine.pickSplitByPair(p.hand, sortedIdx);
       if (!chosen) return;
 
       s.splits[ws.username] = chosen;
+      getLogger(room)?.logSplit(ws.username, chosen);
+
+      // 立即回推私有状态，让确认方立刻看到正确头尾
+      try {
+        ws.send(JSON.stringify({ type: 'game_private', state: engine.getPrivateState(ws.username) }));
+      } catch (_) { /* ignore */ }
 
       const allDone = s.activeIds.every(id => {
         const pl = engine.getPlayer(id);
@@ -734,25 +889,26 @@ wss.on('connection', (ws) => {
         s.phase = 'comparing';
         broadcastRoundState(room);
         setTimeout(() => {
+          const log = getLogger(room);
+          const snapshotBefore = log?.snapshot(engine);
           const compareResult = engine.doCompare();
+          log?.logCompare(engine, compareResult, snapshotBefore);
+          log?.logRoundEnd(engine, 'compare');
           sendToRoom(room, { type: 'game_compare', result: compareResult });
           engine.syncSeatBuyIns();
+          // 比牌后统一进 done，由 startNextRoundAuto 判断：满局数 / 输光决策 / 继续
+          s.phase = 'done';
+          // 比牌里标记的 eliminated 先清掉，留给局间决策处理
+          engine.players.forEach(p => {
+            if (p.pot <= 0) p.eliminated = false;
+          });
           broadcastRoundState(room);
-          const alive = engine.alivePlayers();
-          if (alive.length < 2) {
-            // 游戏结束，发送结算
-            endGameAndSendSettlement(room, 'players');
-          } else {
-            s.phase = 'done';
-            sendToRoom(room, { type: 'game_state', state: engine.getPublicState() });
-            // 4秒后自动开始下一局（庄家轮转）
-            if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
-            room.nextRoundTimer = setTimeout(() => {
-              room.nextRoundTimer = null;
-              startNextRoundAuto(room);
-            }, 4000);
-          }
-        }, 1500);
+          if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
+          room.nextRoundTimer = setTimeout(() => {
+            room.nextRoundTimer = null;
+            startNextRoundAuto(room);
+          }, 900);
+        }, 700);
       }
     }
   });
@@ -785,7 +941,7 @@ function saveRoundResults(room) {
       isWinner: p.pot > (seat ? seat.buyIn : 0),
     };
   });
-  saveGameRecord(room.code, room.gameType, playerResults);
+  saveGameRecord(room.code, playerResults);
 }
 
 // 广播当前回合状态给所有玩家
@@ -804,10 +960,38 @@ function broadcastRoundState(room) {
 }
 
 // 下注轮结束后处理
+function buildLightCompareResult(engine, { winner, reason }) {
+  const results = {};
+  engine.players.forEach(p => {
+    const start = p.roundStartPot != null ? p.roundStartPot : p.pot;
+    p.lastDelta = p.pot - start;
+    results[p.username] = {
+      wins: 0,
+      losses: 0,
+      ties: 0,
+      headName: '',
+      tailName: '',
+      lastDelta: p.lastDelta,
+    };
+  });
+  return {
+    winner: winner || null,
+    alone: !!winner,
+    reason,
+    results,
+    // 对局记录用：全员完整手牌（含弃牌者暗牌）
+    hands: Object.fromEntries(engine.players.map(p => [p.username, [...(p.hand || [])]])),
+    splits: {},
+  };
+}
+
 function handleBettingDone(room, engine, done) {
   const s = engine.state;
+  const log = getLogger(room);
+  log?.logStreetEnd(engine, done);
 
   if (resolveAllInShowdown(engine, done)) {
+    log?.logDeal(engine, 'showdown');
     broadcastRoundState(room);
     return;
   }
@@ -815,27 +999,41 @@ function handleBettingDone(room, engine, done) {
   // 所有人弃牌，直接结束本轮
   if (done.reason === 'all_folded') {
     s.phase = 'done';
+    s.compareResult = buildLightCompareResult(engine, { winner: done.winner, reason: 'all_folded' });
     engine.syncSeatBuyIns();
+    log?.logRoundEnd(engine, 'all_folded');
     broadcastRoundState(room);
-    // 4秒后自动开始下一局（庄家轮转）
+    // 在座不足 2 人（掉线离座）→ 直接总结算
+    const seatedCount = room.seats.filter(seat => seat !== null).length;
+    if (seatedCount < 2 || room.pendingEndReason === 'players') {
+      if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
+      room.nextRoundTimer = setTimeout(() => {
+        room.nextRoundTimer = null;
+        endGameAndSendSettlement(room, room.pendingEndReason || 'players');
+      }, 800);
+      return;
+    }
+    // 短暂间隔后自动开始下一局（庄家轮转）
     if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
     room.nextRoundTimer = setTimeout(() => {
       room.nextRoundTimer = null;
       startNextRoundAuto(room);
-    }, 4000);
+    }, 800);
     return;
   }
 
   // 所有人都休（休芒），结束本轮，下一局所有玩家罚芒果
   if (done.reason === 'rest_cross') {
     s.phase = 'done';
+    s.compareResult = buildLightCompareResult(engine, { winner: null, reason: 'rest_cross' });
     engine.syncSeatBuyIns();
+    log?.logRoundEnd(engine, 'rest_cross');
     broadcastRoundState(room);
     if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
     room.nextRoundTimer = setTimeout(() => {
       room.nextRoundTimer = null;
       startNextRoundAuto(room);
-    }, 4000);
+    }, 800);
     return;
   }
 
@@ -849,6 +1047,7 @@ function handleBettingDone(room, engine, done) {
     setTimeout(() => {
       try {
         engine.dealThirdCard();
+        getLogger(room)?.logDeal(engine, 2);
         broadcastRoundState(room);
       } catch (err) {
         console.error('[handleBettingDone] dealThirdCard error:', err);
@@ -858,6 +1057,7 @@ function handleBettingDone(room, engine, done) {
     setTimeout(() => {
       try {
         engine.dealFourthCard();
+        getLogger(room)?.logDeal(engine, 3);
         broadcastRoundState(room);
       } catch (err) {
         console.error('[handleBettingDone] dealFourthCard error:', err);

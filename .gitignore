@@ -15,6 +15,10 @@ artifacts/
 public/assets/
 
 *.log
+logs/
+*.bak
+*.bak-old-ui
+client/src/styles/room.css.bak-old-ui
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -27,3 +31,9 @@ coverage/
 
 .DS_Store
 Thumbs.db
+
+# Playwright / local UI verification artifacts
+.playwright-cli/
+**/.playwright-cli/
+output/playwright/
+client/.playwright-cli/

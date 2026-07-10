@@ -100,7 +100,7 @@ function updateAvatar(username, avatarPath) {
 }
 
 // ========== 对战记录 ==========
-function saveGameRecord(roomCode, gameType, playerResults) {
+function saveGameRecord(roomCode, playerResults) {
   const insertGame = db.prepare(
     'INSERT INTO game_records (room_code, game_type) VALUES (?, ?)'
   );
@@ -109,7 +109,8 @@ function saveGameRecord(roomCode, gameType, playerResults) {
   );
 
   const tx = db.transaction(() => {
-    const result = insertGame.run(roomCode, gameType);
+    // game_type 列保留兼容旧库，统一写入固定值
+    const result = insertGame.run(roomCode, 'chekai');
     const gameId = result.lastInsertRowid;
 
     for (const p of playerResults) {

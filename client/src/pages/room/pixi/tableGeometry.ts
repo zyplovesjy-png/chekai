@@ -20,8 +20,8 @@ export function getTableGeometry(size: TableSize): TableGeometry {
     center,
     feltRadiusX: Math.max(116, Math.min((width - 144) / 2, 165)),
     feltRadiusY: Math.max(167, Math.min(height * 0.29, 208)),
-    deck: { x: center.x, y: height * 0.23 },
-    pot: { x: center.x, y: height * 0.47 },
+    deck: { x: center.x, y: height * 0.24 },
+    pot: { x: center.x, y: height * 0.44 },
     seats: seatRatios.map((point) => ({ x: width * point.x, y: height * point.y })),
   };
 }

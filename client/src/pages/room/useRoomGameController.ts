@@ -4,9 +4,15 @@ import { useGameStore, type RoundRecord } from '@/stores/gameStore';
 import type { RoomInfo } from '@/stores/roomStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { SEAT_IDS, TURN_TIME_SECONDS } from './constants';
-import { ANIMATION_MS } from './animationEvents';
 import { calcSeatRotation } from './seatLayout';
+import { estimateDealDurationMs } from './components/AnimatedLayer';
 import type { ChipAnimationEvent } from './pixi/pixiTableTypes';
+import {
+  playFoldSound,
+  playKnockSound,
+  playWarnSound,
+  playWinSound,
+} from './sounds';
 
 type ApiFn = (url: string, opts?: RequestInit) => Promise<any>;
 
@@ -17,23 +23,6 @@ interface UseRoomGameControllerArgs {
   navigate: NavigateFunction;
   api: ApiFn;
   setRoom: (room: RoomInfo) => void;
-}
-
-let audioCtx: AudioContext | null = null;
-function playWarningBeep() {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.3);
-  } catch {}
 }
 
 export function useRoomGameController({
@@ -48,7 +37,16 @@ export function useRoomGameController({
   const [showBuyIn, setShowBuyIn] = useState(false);
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null);
   const [buyInAmount, setBuyInAmount] = useState(0);
-  const [buyInDecision, setBuyInDecision] = useState<{ brokeUsername: string; brokeNickname: string } | null>(null);
+  const [buyInDecision, setBuyInDecision] = useState<{
+    players: Array<{
+      username: string;
+      nickname: string;
+      choice: 'continue' | 'settle' | null;
+      amount?: number | null;
+    }>;
+    pending: string[];
+    waitingText: string;
+  } | null>(null);
   const [addBuyInAmount, setAddBuyInAmount] = useState(100);
   const [showMenu, setShowMenu] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -57,6 +55,7 @@ export function useRoomGameController({
   const [turnTimer, setTurnTimer] = useState(TURN_TIME_SECONDS);
   const [dealAnim, setDealAnim] = useState<{ key: number; targets: number[] }>({ key: 0, targets: [] });
   const [chipAnim, setChipAnim] = useState<ChipAnimationEvent | null>(null);
+  const [isDealing, setIsDealing] = useState(false);
 
   const roomRef = useRef(room);
   const myUsernameRef = useRef(myUsername);
@@ -65,6 +64,7 @@ export function useRoomGameController({
   const setRoomRef = useRef(setRoom);
   const bankerAnimRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dealStreetKeyRef = useRef('');
   const capturedRound = useRef<number>(0);
   const prevRoundRef = useRef<number>(game.round);
 
@@ -89,7 +89,7 @@ export function useRoomGameController({
       setTurnTimer((timeLeft) => {
         if (timeLeft === 31 && !warned.done) {
           warned.done = true;
-          setTimeout(() => playWarningBeep(), 900);
+          setTimeout(() => playWarnSound(), 900);
         }
         if (timeLeft <= 1) {
           clearInterval(interval);
@@ -103,7 +103,15 @@ export function useRoomGameController({
   }, [currentActor]);
 
   useEffect(() => {
-    if (game.phase !== 'dealing') return;
+    if (game.phase !== 'dealing') {
+      setIsDealing(false);
+      return;
+    }
+
+    // 同一局同一街只播一次（避免 players 数组引用变化导致重复）
+    const streetKey = `${game.round}:${game.betRound}:${game.phase}`;
+    if (dealStreetKeyRef.current === streetKey) return;
+    dealStreetKeyRef.current = streetKey;
 
     const targets = game.players
       .filter((player) => !player.folded && !player.eliminated)
@@ -113,14 +121,25 @@ export function useRoomGameController({
         return visualSeats.indexOf(physIdx);
       })
       .filter((value) => value >= 0);
+
+    // 自己也要收到飞牌（落到手牌区）
+    const myPhys = room?.seats?.findIndex((seat) => seat?.username === myUsername) ?? -1;
+    if (myPhys >= 0) {
+      const myVisual = visualSeats.indexOf(myPhys);
+      if (myVisual >= 0 && !targets.includes(myVisual)) targets.push(myVisual);
+    }
+
     const key = Date.now();
+    setIsDealing(true);
     setDealAnim({ key, targets });
     if (dealTimerRef.current) clearTimeout(dealTimerRef.current);
+    const duration = estimateDealDurationMs(targets.length);
     dealTimerRef.current = setTimeout(() => {
       setDealAnim({ key: 0, targets: [] });
+      setIsDealing(false);
       dealTimerRef.current = null;
-    }, ANIMATION_MS.deal + 100);
-  }, [game.phase, game.players, room?.seats, visualSeats]);
+    }, duration);
+  }, [game.phase, game.round, game.betRound, game.players, room?.seats, visualSeats, myUsername]);
 
   useEffect(() => {
     return () => {
@@ -136,14 +155,58 @@ export function useRoomGameController({
   }, []);
 
   useEffect(() => {
+    if (game.phase !== 'selecting' && game.selected.length) {
+      game.setSelected([]);
+    }
+  }, [game.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 发牌张数变化时清掉选中，避免上一局/误点的黄框残留在暗牌上
+  const handLenRef = useRef(0);
+  useEffect(() => {
+    const len = game.myHand.length;
+    if (len !== handLenRef.current) {
+      handLenRef.current = len;
+      if (game.phase !== 'selecting' && game.selected.length) {
+        game.setSelected([]);
+      }
+    }
+  }, [game.myHand.length, game.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 新一局开始时清掉上一局的选牌/配牌预览
+  useEffect(() => {
     if (game.round !== prevRoundRef.current) {
       game.clearKnockedThisRound();
+      game.clearFeed();
+      game.setSelected([]);
+      game.setMySplit(null);
       prevRoundRef.current = game.round;
     }
   }, [game]);
 
+  // 阶段切换弱提示进动作条（不占桌心）
+  const phaseFeedRef = useRef('');
   useEffect(() => {
-    if (game.phase === 'done' && game.compareResult && game.round !== capturedRound.current) {
+    if (!game.gameStarted) {
+      phaseFeedRef.current = '';
+      return;
+    }
+    const key = `${game.round}:${game.phase}`;
+    if (phaseFeedRef.current === key) return;
+    const prev = phaseFeedRef.current;
+    phaseFeedRef.current = key;
+    if (!prev) return; // 首帧/重连不同步刷一条
+    const labels: Record<string, string> = {
+      betting2: '→ 第二轮（发第3张）',
+      betting3: '→ 第三轮（发第4张）',
+      selecting: '→ 配牌',
+      comparing: '→ 比牌',
+    };
+    const label = labels[game.phase];
+    if (label) game.pushFeed(label, 'phase');
+  }, [game.gameStarted, game.round, game.phase]);
+
+  useEffect(() => {
+    if (game.phase === 'done' && game.round !== capturedRound.current) {
       capturedRound.current = game.round;
       const compareResult = game.compareResult;
       const record: RoundRecord = {
@@ -152,12 +215,17 @@ export function useRoomGameController({
         winner: compareResult?.winner || null,
         players: game.players.map((player) => {
           const result = compareResult?.results?.[player.username];
+          const fullHand = compareResult?.hands?.[player.username];
+          const fullSplit = compareResult?.splits?.[player.username];
           return {
             username: player.username,
             nickname: player.nickname,
-            hand: [...(player.publicCards || [])],
-            split: player.split || null,
-            lastDelta: player.lastDelta,
+            // 优先用结算快照里的完整手牌（含暗牌）
+            hand: Array.isArray(fullHand) && fullHand.length
+              ? [...fullHand]
+              : [...(player.publicCards || [])],
+            split: fullSplit || player.split || null,
+            lastDelta: result?.lastDelta ?? player.lastDelta,
             wins: result?.wins || 0,
             losses: result?.losses || 0,
             ties: result?.ties || 0,
@@ -185,18 +253,40 @@ export function useRoomGameController({
         if (!msg.action) return;
 
         const currentGame = gameRef.current;
-        const chipActions = new Set(['see', 'raise', 'knock', 'call']);
-        if (msg.action.player && chipActions.has(msg.action.action)) {
-          const currentRoom = roomRef.current;
-          const { visualSeats: currentVisualSeats } = calcSeatRotation(currentRoom, myUsernameRef.current);
-          const physicalIndex = currentRoom?.seats?.findIndex((seat) => seat?.username === msg.action.player) ?? -1;
-          const visualSeatIndex = physicalIndex >= 0 ? currentVisualSeats.indexOf(physicalIndex) : -1;
+        const currentRoom = roomRef.current;
+        const { visualSeats: currentVisualSeats } = calcSeatRotation(currentRoom, myUsernameRef.current);
+        const visualOf = (username?: string) => {
+          if (!username) return -1;
+          const physicalIndex = currentRoom?.seats?.findIndex((seat) => seat?.username === username) ?? -1;
+          return physicalIndex >= 0 ? currentVisualSeats.indexOf(physicalIndex) : -1;
+        };
+
+        // 下注：筹码飞到该座位桌面喊价区（尚未入底池）
+        const seatBetActions = new Set(['see', 'raise', 'knock', 'call']);
+        if (msg.action.player && seatBetActions.has(msg.action.action)) {
+          const visualSeatIndex = visualOf(msg.action.player);
           if (visualSeatIndex >= 0) {
             setChipAnim({
               key: Date.now(),
+              kind: 'to_seat_bet',
+              fromVisualSeat: visualSeatIndex,
+              toVisualSeat: visualSeatIndex,
               player: msg.action.player,
-              visualSeatIndex,
               amount: msg.action.amount ?? msg.action.bet,
+            });
+          }
+        }
+
+        // 弃牌：喊价真正进底池 → 飞向底池
+        if (msg.action.action === 'fold' && msg.action.player) {
+          const visualSeatIndex = visualOf(msg.action.player);
+          if (visualSeatIndex >= 0) {
+            setChipAnim({
+              key: Date.now(),
+              kind: 'to_pot',
+              fromVisualSeat: visualSeatIndex,
+              player: msg.action.player,
+              amount: msg.action.lost ?? msg.action.amount ?? msg.action.bet,
             });
           }
         }
@@ -209,6 +299,7 @@ export function useRoomGameController({
             break;
           case 'fold':
             text = `${msg.action.name} 甩`;
+            playFoldSound();
             break;
           case 'raise':
             text = `${msg.action.name} 返 ${msg.action.amount}`;
@@ -216,6 +307,7 @@ export function useRoomGameController({
             break;
           case 'knock':
             text = `${msg.action.name} 敲`;
+            playKnockSound();
             if (msg.action.player) currentGame.knockUser(msg.action.player);
             break;
           case 'rest':
@@ -226,47 +318,107 @@ export function useRoomGameController({
             if (msg.action.player && msg.action.allIn) currentGame.knockUser(msg.action.player);
             break;
         }
-        currentGame.setHintText(text);
+        if (text) {
+          if (msg.action.timeout) text = `${text}（超时）`;
+          currentGame.pushFeed(text, 'action');
+        }
       },
       game_compare: (msg: any) => {
         const currentGame = gameRef.current;
         currentGame.setCompareResult(msg.result);
-        const winner = msg.result?.winner
-          ? currentGame.players.find((player) => player.username === msg.result.winner)
-          : null;
-        currentGame.setCenterMessage(`本局胜者: ${winner?.nickname || msg.result?.winner || '-'}`);
+        // 不再播报赢家 Toast，局末尽快进下一局；筹码动画仍保留
+        if (msg.result?.reason !== 'all_folded' && msg.result?.reason !== 'rest_cross') {
+          playWinSound();
+        }
+
+        // 结算动画：底池 → 赢家；输家喊价区 → 赢家（简化：有净赢的飞向赢家）
+        const currentRoom = roomRef.current;
+        const { visualSeats: currentVisualSeats } = calcSeatRotation(currentRoom, myUsernameRef.current);
+        const visualOf = (username?: string | null) => {
+          if (!username) return -1;
+          const physicalIndex = currentRoom?.seats?.findIndex((seat) => seat?.username === username) ?? -1;
+          return physicalIndex >= 0 ? currentVisualSeats.indexOf(physicalIndex) : -1;
+        };
+        const winnerName = msg.result?.winner as string | undefined;
+        const winnerSeat = visualOf(winnerName);
+        if (winnerSeat >= 0 && msg.result?.reason !== 'rest_cross') {
+          // 底池飞向赢家
+          setTimeout(() => {
+            setChipAnim({
+              key: Date.now(),
+              kind: 'pot_to_seat',
+              toVisualSeat: winnerSeat,
+              player: winnerName,
+              amount: 20,
+            });
+          }, 120);
+          // 其他有净输的玩家 → 赢家
+          const results = msg.result?.results || {};
+          let delay = 280;
+          Object.entries(results).forEach(([uname, r]: [string, any]) => {
+            if (uname === winnerName) return;
+            if ((r?.lastDelta ?? 0) >= 0) return;
+            const fromSeat = visualOf(uname);
+            if (fromSeat < 0) return;
+            setTimeout(() => {
+              setChipAnim({
+                key: Date.now() + fromSeat,
+                kind: 'seat_to_seat',
+                fromVisualSeat: fromSeat,
+                toVisualSeat: winnerSeat,
+                player: uname,
+                amount: Math.abs(r.lastDelta || 10),
+              });
+            }, delay);
+            delay += 160;
+          });
+        }
       },
       game_settlement: (msg: any) => {
         setBuyInDecision(null);
         gameRef.current.setSettlement(msg.settlement || []);
       },
       awaiting_buyin_decision: (msg: any) => {
-        setBuyInDecision({
-          brokeUsername: msg.brokeUsername,
-          brokeNickname: msg.brokeNickname,
-        });
+        // 兼容旧单人字段
+        const players = Array.isArray(msg.players) && msg.players.length
+          ? msg.players
+          : (msg.brokeUsername
+            ? [{ username: msg.brokeUsername, nickname: msg.brokeNickname, choice: null, amount: null }]
+            : []);
+        const pending = Array.isArray(msg.pending)
+          ? msg.pending
+          : players.filter((p: any) => !p.choice).map((p: any) => p.username);
+        const waitingText = msg.waitingText
+          || (pending.length
+            ? `等待 ${players.filter((p: any) => pending.includes(p.username)).map((p: any) => p.nickname || p.username).join('、')} 加簸或退出…`
+            : '正在处理…');
+        setBuyInDecision({ players, pending, waitingText });
+        gameRef.current.showToast(waitingText, { sticky: true });
+      },
+      buyin_decision_cleared: () => {
+        setBuyInDecision(null);
+        gameRef.current.clearToast();
       },
       buyin_pending: (msg: any) => {
-        gameRef.current.setHintText(`${msg.username} 已申请加簸 ${msg.amount}（下局生效）`);
+        const name = msg.nickname || msg.username || '玩家';
+        const amount = msg.amount ?? 0;
+        const suffix = msg.pending === false ? '' : '（下局生效）';
+        gameRef.current.pushFeed(`${name} 加簸 ${amount}${suffix}`, 'system');
       },
-      player_reconnected: () => gameRef.current.setHintText('玩家重新连接'),
+      player_reconnected: () => gameRef.current.pushFeed('玩家重新连接', 'system'),
       room_disbanded: () => {
         gameRef.current.reset();
         alert('房间已被房主解散');
         navigateRef.current('/lobby', { replace: true });
       },
-      error: (msg: any) => gameRef.current.setHintText(msg.msg || '错误'),
+      error: (msg: any) => {
+        gameRef.current.showToast(msg.msg || '错误', { ms: 2800 });
+        gameRef.current.pushFeed(msg.msg || '错误', 'error');
+      },
       banker_selecting: () => {
         const currentGame = gameRef.current;
-        const currentRoom = roomRef.current;
-        currentGame.setCenterMessage('选庄中...');
-        const seats = currentRoom?.seats?.filter(Boolean) || [];
-        if (seats.length === 0) return;
-        if (bankerAnimRef.current) clearInterval(bankerAnimRef.current);
-        bankerAnimRef.current = setInterval(() => {
-          const rand = seats[Math.floor(Math.random() * seats.length)];
-          currentGame.setBankerHighlight(rand!.username);
-        }, 150);
+        currentGame.setBankerHighlight(null);
+        currentGame.showToast('系统随机选庄中', { sticky: true });
       },
       banker_selected: (msg: any) => {
         if (bankerAnimRef.current) {
@@ -274,20 +426,19 @@ export function useRoomGameController({
           bankerAnimRef.current = null;
         }
         gameRef.current.setBankerHighlight(null);
-        gameRef.current.setCenterMessage(`${msg.bankerName || msg.banker} 是庄家!`);
-        setTimeout(() => gameRef.current.setCenterMessage(null), 2000);
+        // 首局定庄短提示即可；之后轮庄不再播报
+        gameRef.current.showToast(`${msg.bankerName || msg.banker} 是庄家`, { ms: 1200 });
       },
-      banker_rotated: (msg: any) => {
-        gameRef.current.setCenterMessage(`庄家轮转 → ${msg.bankerName || msg.banker}`);
-        setTimeout(() => gameRef.current.setCenterMessage(null), 2000);
+      banker_rotated: () => {
+        // 轮庄只靠「庄」标签体现，不再弹消息
       },
       turn_warning: () => {
-        playWarningBeep();
+        playWarnSound();
       },
       player_timeout: (msg: any) => {
         const currentRoom = roomRef.current;
         const name = currentRoom?.seats.find((seat) => seat?.username === msg.username)?.nickname || msg.username;
-        gameRef.current.setHintText(`${name} 因长时间未操作已离开座位`);
+        gameRef.current.pushFeed(`${name} 因长时间未操作已离开座位`, 'system');
       },
     };
   }
@@ -353,7 +504,7 @@ export function useRoomGameController({
 
   const handleBuyInDecision = useCallback((choice: 'continue' | 'settle', amount?: number) => {
     send({ type: 'buyin_decision', choice, amount });
-    if (choice === 'continue') setBuyInDecision(null);
+    // 弹窗是否关闭由服务端回推的 awaiting / cleared 决定
   }, [send]);
 
   const handleReady = useCallback(async () => {
@@ -380,14 +531,6 @@ export function useRoomGameController({
     game.reset();
     navigate('/lobby', { replace: true });
   }, [api, code, game, navigate]);
-
-  const handleGameTypeChange = useCallback(async (gameType: string) => {
-    if (!code) return;
-    await api(`/api/rooms/${code}/gametype`, {
-      method: 'POST',
-      body: JSON.stringify({ gameType }),
-    });
-  }, [api, code]);
 
   const handleAction = useCallback((action: string, amount?: number) => {
     send({ type: 'player_action', action, amount });
@@ -416,7 +559,9 @@ export function useRoomGameController({
   const handleConfirmSplit = useCallback(() => {
     if (game.selected.length !== 2) return;
     send({ type: 'player_split', headIdx: game.selected });
-  }, [game.selected, send]);
+    // 提交后立刻清掉选中高亮；头尾展示改由 mySplit 驱动
+    game.setSelected([]);
+  }, [game, send]);
 
   const allReady = useMemo(() => {
     if (!room || room.gameStarted) return false;
@@ -433,7 +578,7 @@ export function useRoomGameController({
 
   const isMyTurn = currentActor === myUsername;
   const isBetting = ['betting1', 'betting2', 'betting3'].includes(game.phase);
-  const betStarted = game.betStarted || game.betRound === 1;
+  const betStarted = game.betStarted;
 
   return {
     game,
@@ -453,6 +598,7 @@ export function useRoomGameController({
     turnTimer,
     dealAnim,
     chipAnim,
+    isDealing,
     visualSeats,
     currentActor,
     getAvatar,
@@ -468,7 +614,6 @@ export function useRoomGameController({
     handleStartGame,
     handleDisband,
     handleLeaveRoom,
-    handleGameTypeChange,
     handleAction,
     handleCardClick,
     handleAutoSplit,

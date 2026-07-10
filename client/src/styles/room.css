@@ -1,105 +1,15 @@
-﻿/* ========== 房间页（德扑之星风格） ========== */
-.room-page.new-table {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  max-width: 480px;
-  margin: 0 auto;
-  background: #0a1f2e;
-  position: relative;
-}
+﻿/* 旧 new-table / sketch 布局层已移除；房间页仅使用 .tea-room */
 
 /* 观战席 */
-.spectator-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.25);
-  border-bottom: 1px solid rgba(212, 175, 55, 0.15);
-  flex-shrink: 0;
-  overflow: hidden;
-}
-.spectator-label {
-  font-size: 12px;
-  color: var(--gold);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.spectator-list {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  flex: 1;
-  align-items: center;
-}
-.spectator-list::-webkit-scrollbar { display: none; }
-.spectator-empty { font-size: 11px; color: var(--text-dim); }
-.spectator-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text);
-  background: rgba(255,255,255,0.05);
-  padding: 2px 8px 2px 4px;
-  border-radius: 14px;
-  white-space: nowrap;
-}
 
 /* 顶部信息栏 */
-.table-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  flex-shrink: 0;
-}
 .table-info { text-align: center; flex: 1; }
 .room-title { font-size: 14px; color: var(--gold); font-weight: 600; }
 .room-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 .header-actions { display: flex; gap: 6px; align-items: center; }
 .btn-xs { font-size: 11px; padding: 4px 10px; min-width: auto; }
 
-/* 牌桌区域 */
-.game-area {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  min-height: 0;
-}
 /* 桌面椭圆 */
-.table-felt {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -55%);
-  width: 92%;
-  height: 58%;
-  border-radius: 45%;
-  background: radial-gradient(ellipse at center, #1e5a36 0%, #134525 55%, #0a2812 100%);
-  border: 3px solid rgba(212, 175, 55, 0.4);
-  box-shadow:
-    0 0 24px rgba(0, 0, 0, 0.5),
-    inset 0 0 30px rgba(0, 0, 0, 0.3),
-    0 0 0 4px rgba(10, 20, 12, 0.6),
-    0 0 0 5px rgba(212, 175, 55, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1;
-}
-.pot-badge {
-  background: rgba(0, 0, 0, 0.5);
-  color: var(--gold);
-  padding: 5px 16px;
-  border-radius: 16px;
-  font-size: 13px;
-  font-weight: 700;
-  border: 1px solid rgba(212, 175, 55, 0.35);
-  box-shadow: 0 0 12px rgba(212, 175, 55, 0.15), 0 2px 6px rgba(0, 0, 0, 0.4);
-}
 
 /* 头像 */
 .avatar-wrap { position: relative; border-radius: 50%; }
@@ -128,70 +38,37 @@
 }
 
 /* 座位（8个） */
-.seat-slot {
-  position: absolute;
-  z-index: 2;
-  display: flex;
-  justify-content: center;
-}
-.seat-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-.seat-name {
-  font-size: 11px;
-  color: var(--text);
-  font-weight: 500;
-  white-space: nowrap;
-  max-width: 76px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-}
-.seat-score {
-  font-size: 10px;
-  color: var(--gold);
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-}
-.seat-avatar-row {
-  position: relative;
-  display: flex;
-  justify-content: center;
-}
 
 /* 玩家状态视觉区分 */
-.seat-avatar-row.folded .avatar {
-  filter: grayscale(0.7) brightness(0.5);
-  opacity: 0.55;
-  animation: fold-fade 0.36s ease-out;
-}
 @keyframes fold-fade {
   0% { filter: grayscale(0) brightness(1); opacity: 1; }
   100% { filter: grayscale(0.7) brightness(0.5); opacity: 0.55; }
-}
-.seat-avatar-row.folded .seat-name { opacity: 0.5; }
-.seat-avatar-row.turn-active .avatar {
-  box-shadow: 0 0 14px rgba(212, 175, 55, 0.7), 0 2px 8px rgba(0,0,0,0.4);
-  animation: turn-pulse 0.5s ease-out;
 }
 @keyframes turn-pulse {
   0% { box-shadow: 0 0 30px rgba(212, 175, 55, 1); transform: scale(1.1); }
   100% { box-shadow: 0 0 14px rgba(212, 175, 55, 0.7), 0 2px 8px rgba(0,0,0,0.4); transform: scale(1); }
 }
-.seat-avatar-row.knocked .avatar {
-  border-color: rgba(255, 69, 0, 0.6) !important;
-  box-shadow: 0 0 10px rgba(255, 69, 0, 0.4);
+.broke-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  z-index: 6;
+  background: rgba(40, 32, 18, 0.92);
+  color: #f0d78c;
+  border: 1px solid rgba(212, 175, 55, 0.55);
 }
-.seat-avatar-row.ready .avatar {
-  border-color: rgba(76, 175, 80, 0.6) !important;
-  box-shadow: 0 0 8px rgba(76, 175, 80, 0.35);
-}
-.seat-avatar-row.disconnected .avatar {
-  filter: grayscale(1) brightness(0.4);
-  opacity: 0.4;
+.self-seat-box .broke-badge {
+  position: static;
+  transform: none;
+  display: inline-block;
+  margin-top: 2px;
 }
 .disconnect-badge {
   position: absolute;
@@ -235,79 +112,14 @@
   margin-right: 4px;
   vertical-align: middle;
 }
-.empty-seat {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.empty-avatar {
-  width: 48px; height: 48px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: rgba(255,255,255,0.45);
-  font-size: 12px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-}
-.empty-num {
-  position: absolute;
-  top: -6px; left: -6px;
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.15);
-  color: rgba(255,255,255,0.5);
-  font-size: 9px;
-  font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-}
 
 /* 座位位置（参考截图） */
-.seat-vpos-0 { top: 6%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-1 { top: 16%; right: 4%; }
-.seat-vpos-2 { top: 36%; right: 4%; }
-.seat-vpos-3 { top: 56%; right: 4%; }
-.seat-vpos-4 { bottom: 14%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-5 { top: 56%; left: 4%; }
-.seat-vpos-6 { top: 36%; left: 4%; }
-.seat-vpos-7 { top: 16%; left: 4%; }
 
 /* 明牌（第三、第四张） */
-.public-cards {
-  position: absolute;
-  display: flex;
-  gap: 2px;
-  z-index: 3;
-}
-.public-cards-vpos-0 { top: 15%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-1 { top: 23%; right: 22%; }
-.public-cards-vpos-2 { top: 42%; right: 22%; }
-.public-cards-vpos-3 { top: 61%; right: 22%; }
-.public-cards-vpos-4 { bottom: 32%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-5 { top: 61%; left: 22%; }
-.public-cards-vpos-6 { top: 42%; left: 22%; }
-.public-cards-vpos-7 { top: 23%; left: 22%; }
 
 /* 自己的手牌区域 */
-.my-hand-area {
-  position: absolute;
-  bottom: 3%;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-}
-.my-hand {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-}
 
 /* 配牌确认后的头尾分组显示 */
-.my-hand.split-confirmed {
-  gap: 0;
-  align-items: center;
-}
 .split-hand-group {
   display: flex;
   flex-direction: column;
@@ -432,8 +244,8 @@
   gap: 1px;
 }
 .history-card-slot {
-  width: 28px;
-  height: 40px;
+  width: 32px;
+  height: 46px;
 }
 .history-deal-badge {
   font-size: 8px;
@@ -466,6 +278,15 @@
   margin: 6px 10px 8px;
   align-self: center;
 }
+.history-empty-body {
+  padding: 24px 16px;
+  text-align: center;
+  color: rgba(232, 247, 255, 0.72);
+  font-size: 14px;
+}
+.history-panel-empty .history-header {
+  justify-content: center;
+}
 .btn-sm {
   font-size: 11px;
   padding: 3px 8px;
@@ -479,13 +300,6 @@
 
 
 /* 操作提示 */
-.hint-bar {
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-dim);
-  padding: 4px 0;
-  flex-shrink: 0;
-}
 .compare-banner {
   position: absolute;
   top: 50%;
@@ -500,16 +314,6 @@
 }
 
 /* 底部按钮栏 */
-.bottom-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px 12px;
-  background: linear-gradient(180deg, rgba(13,40,46,0.95), #0a1f2e);
-  border-top: 1px solid rgba(212, 175, 55, 0.15);
-  flex-shrink: 0;
-}
 .bottom-btn {
   display: flex;
   flex-direction: column;
@@ -525,14 +329,6 @@
   min-width: 48px;
 }
 .bottom-btn .icon { font-size: 18px; }
-.action-buttons {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-  flex-wrap: wrap;
-  flex: 1;
-}
-.action-buttons .btn { font-size: 12px; padding: 6px 12px; min-width: auto; }
 
 /* 通用按钮小尺寸 */
 .btn-xs { font-size: 11px; padding: 4px 10px; min-width: auto; }
@@ -730,63 +526,6 @@
 .settlement-row.loser .settlement-delta { color: #ef5350; }
 
 /* 发牌动画 */
-.deal-card {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 28px;
-  height: 40px;
-  margin-left: -14px;
-  margin-top: -20px;
-  border-radius: 4px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(212,175,55,0.2), transparent 40%),
-    repeating-linear-gradient(45deg, #642818, #642818 4px, #873b23 4px, #873b23 8px);
-  border: 1px solid var(--gold);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  z-index: 6;
-  opacity: 0;
-}
-.deal-to-vpos-0 { animation: deal-fly-0 0.7s ease-out forwards; }
-.deal-to-vpos-1 { animation: deal-fly-1 0.7s ease-out forwards; }
-.deal-to-vpos-2 { animation: deal-fly-2 0.7s ease-out forwards; }
-.deal-to-vpos-3 { animation: deal-fly-3 0.7s ease-out forwards; }
-.deal-to-vpos-4 { animation: deal-fly-4 0.7s ease-out forwards; }
-.deal-to-vpos-5 { animation: deal-fly-5 0.7s ease-out forwards; }
-.deal-to-vpos-6 { animation: deal-fly-6 0.7s ease-out forwards; }
-.deal-to-vpos-7 { animation: deal-fly-7 0.7s ease-out forwards; }
-@keyframes deal-fly-0 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 50%; top: 6%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-1 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 96%; top: 16%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-2 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 96%; top: 36%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-3 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 96%; top: 56%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-4 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 50%; top: 86%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-5 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 4%; top: 61%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-6 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 4%; top: 36%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
-@keyframes deal-fly-7 {
-  0% { left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { left: 4%; top: 16%; transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-}
 
 /* ========== 动画 ========== */
 @keyframes pulse-gold {
@@ -889,19 +628,6 @@
 }
 
 /* ========== 房间顶部控件 ========== */
-.game-type-select {
-  padding: 4px 8px;
-  border: 1px solid rgba(212, 175, 55, 0.3);
-  background: rgba(0, 0, 0, 0.3);
-  color: var(--text);
-  border-radius: 6px;
-  font-size: 12px;
-  outline: none;
-  cursor: pointer;
-}
-.game-type-select:focus { border-color: var(--gold); }
-.game-type-select option { background: #1a2e1f; color: var(--text); }
-
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -915,21 +641,13 @@
   min-width: auto;
 }
 
-/* ========== 卡牌槽（通用，用于明牌区） ========== */
+/* ========== 卡牌槽（通用，用于明牌区）——比例贴近 PNG 338:489 ========== */
 .card-slot {
-  width: 28px;
-  height: 40px;
+  width: 34px;
+  height: 49px;
 }
-.my-hand .card-slot { width: 44px; height: 62px; }
 
 /* ========== 自己的座位高亮 ========== */
-.seat-slot.is-me {
-  z-index: 4;
-}
-.seat-slot.is-me .seat-name {
-  color: var(--gold);
-  font-weight: 700;
-}
 
 /* ========== 菜单列表 ========== */
 .menu-list {
@@ -966,1475 +684,1574 @@
   width: 100%;
   height: 100%;
 }
-.table-felt.pixi-backed {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
 
-/* ========== 2026-07 mobile table redesign ========== */
-.room-page.new-table {
+/* ========== 茶馆风格 · 阶段 A 视觉骨架（茶馆房间页） ========== */
+.room-page.tea-room {
+  --felt: #1a4d38;
+  --felt-mid: #246348;
+  --felt-deep: #0c241a;
+  --wood: #8a5a32;
+  --wood-dark: #4a2e16;
+  --gold: #e0c06a;
+  --gold-deep: #b8922e;
+  --ink: #f4f0e6;
+  --muted: rgba(244, 240, 230, 0.52);
+  --danger: #d46a58;
+  --timer: #2ee6c8;
+  --timer-warn: #ff8a3d;
+  --timer-crit: #ff4d4d;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-width: 430px;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 auto;
+  overflow: hidden;
+  color: var(--ink);
   background:
-    radial-gradient(circle at 50% 8%, rgba(43, 94, 93, 0.28), transparent 34%),
-    linear-gradient(180deg, #071924 0%, #0b2029 52%, #07131b 100%);
+    radial-gradient(100% 55% at 50% -8%, #2a5c44 0%, transparent 48%),
+    linear-gradient(180deg, #163528 0%, #0a1c14 55%, #07140f 100%);
+  position: relative;
+  padding-top: 0;
+  font-family: "Noto Sans SC", "PingFang SC", sans-serif;
 }
 
-.table-header {
-  padding: 6px 10px 4px;
-  min-height: 36px;
-}
-.table-info-compact {
-  text-align: left;
-  flex: 0 0 auto;
-}
-.table-info-compact .room-title {
-  color: rgba(232, 204, 126, 0.72);
-  font-size: 12px;
-  letter-spacing: 0;
-}
-.header-actions {
-  margin-left: auto;
-}
-
-.game-area {
-  min-height: 560px;
-}
-
-.table-felt {
-  top: 47%;
-  width: calc(100% - 132px);
-  min-width: 236px;
-  max-width: 330px;
-  height: 62%;
-  max-height: 430px;
-  min-height: 330px;
-  border-radius: 24px;
-  transform: translate(-50%, -50%);
-  background:
-    linear-gradient(120deg, rgba(255,255,255,0.08), transparent 22%, transparent 74%, rgba(0,0,0,0.24)),
-    radial-gradient(circle at 50% 30%, rgba(77, 168, 109, 0.26), transparent 34%),
-    linear-gradient(180deg, #245d3c 0%, #124226 58%, #0b2d1a 100%);
-  border: 1px solid rgba(240, 210, 138, 0.7);
-  box-shadow:
-    0 18px 46px rgba(0,0,0,0.48),
-    inset 0 0 0 7px rgba(8, 25, 18, 0.5),
-    inset 0 0 0 9px rgba(230, 190, 92, 0.24),
-    inset 0 18px 40px rgba(255,255,255,0.08),
-    inset 0 -30px 48px rgba(0,0,0,0.28);
-}
-.table-felt::before {
+.room-page.tea-room::before {
   content: "";
   position: absolute;
-  inset: 13px;
-  border-radius: 17px;
-  border: 1px solid rgba(232, 204, 126, 0.22);
+  inset: 0;
+  opacity: 0.04;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* —— 顶栏 —— */
+.tea-room .tea-top {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(6px + var(--safe-t)) 10px 2px;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.tea-room .tea-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tea-room .tea-code {
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.tea-room .tea-meta {
+  font-size: 0.58rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tea-room .tea-phase {
+  font-size: 0.55rem;
+  color: rgba(244, 240, 230, 0.88);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(224, 192, 106, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tea-room .tea-top-tools {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tea-room .tea-menu-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(224, 192, 106, 0.3);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--gold);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* —— 舞台 —— */
+.tea-room .tea-stage,
+.tea-room .game-area.tea-stage {
+  position: relative;
+  min-height: 0;
+  margin: 0 0 -4px;
+  z-index: 1;
+  flex: unset;
+  background: transparent;
+  isolation: isolate;
+  /* 不能 hidden：会裁掉木边 box-shadow */
+  overflow: visible;
+}
+
+/* 大圆角矩形桌：左右/顶内收，头像在桌外
+   注意：不要在 inset 后再写 top/left:auto，否则会把桌面尺寸压成 0 */
+.tea-room .table-felt.tea-felt,
+.tea-room .table-felt.tea-felt.pixi-backed {
+  position: absolute !important;
+  top: 14% !important;
+  right: 15% !important;
+  bottom: 4% !important;
+  left: 15% !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  transform: none !important;
+  border-radius: 40px !important;
   background:
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-  background-size: 18px 18px;
-  opacity: 0.5;
+    radial-gradient(ellipse 80% 70% at 50% 42%, #31855c 0%, var(--felt-mid) 40%, var(--felt) 70%, var(--felt-deep) 100%) !important;
+  border: 0 !important;
+  box-shadow:
+    0 0 0 6px var(--wood),
+    0 0 0 8px var(--wood-dark),
+    0 0 0 9px rgba(224, 192, 106, 0.18),
+    inset 0 12px 28px rgba(255, 255, 255, 0.06),
+    inset 0 -20px 36px rgba(0, 0, 0, 0.4),
+    0 12px 24px rgba(0, 0, 0, 0.45) !important;
+  display: block !important;
+  z-index: 1;
+}
+
+.tea-room .table-felt.tea-felt::before {
+  content: "";
+  display: block;
+  position: absolute;
+  inset: 10px;
+  border-radius: 32px;
+  border: 1px solid rgba(224, 192, 106, 0.14);
+  box-shadow: none;
   pointer-events: none;
 }
-.table-felt.pixi-backed {
+
+.tea-room .table-felt.tea-felt::after {
+  content: none;
+  display: none;
+}
+
+.tea-room .table-felt.tea-felt.pixi-backed {
   background: transparent;
-  border-color: transparent;
   box-shadow: none;
 }
-.table-felt.pixi-backed::before { display: none; }
+.tea-room .table-felt.tea-felt.pixi-backed::before,
+.tea-room .table-felt.tea-felt.pixi-backed::after {
+  display: none;
+}
 
-.table-room-info {
+/* 底池 */
+.tea-room .tea-pot {
   position: absolute;
-  left: 18px;
-  right: 18px;
-  top: 61%;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  text-align: center;
+  pointer-events: none;
+}
+
+.tea-room .tea-pot .chip-stack {
+  width: 48px;
+  height: 28px;
+  margin: 0 auto 4px;
+  position: relative;
+}
+
+.tea-room .tea-pot .chip-stack i {
+  position: absolute;
+  left: 50%;
+  width: 34px;
+  height: 12px;
+  margin-left: -17px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, #fff3c4 0%, #f0d78c 30%, var(--gold-deep, #b8922e) 58%, #6a4e18 100%);
+  box-shadow:
+    0 1px 0 #3a2808,
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 0 0 2px rgba(90, 60, 10, 0.28);
+  display: block !important;
+}
+
+.tea-room .tea-pot .chip-stack i:nth-child(1) { bottom: 0; z-index: 1; }
+.tea-room .tea-pot .chip-stack i:nth-child(2) { bottom: 4px; z-index: 2; transform: translateX(-1px); }
+.tea-room .tea-pot .chip-stack i:nth-child(3) { bottom: 8px; z-index: 3; transform: translateX(1px); }
+.tea-room .tea-pot .chip-stack i:nth-child(4) { bottom: 12px; z-index: 4; }
+
+.tea-room .tea-pot .pot-badge {
+  position: static !important;
+  transform: none !important;
+  left: auto !important;
+  top: auto !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  display: block !important;
+}
+
+.tea-room .tea-pot .pot-value {
+  font-family: "Noto Serif SC", "Songti SC", serif !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
+  color: var(--gold) !important;
+  line-height: 1;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+.tea-room .tea-pot .pot-sub {
+  margin-top: 2px;
+  font-size: 0.58rem;
+  color: var(--muted);
+}
+
+.tea-room .tea-pot .chip-stack {
+  width: 48px;
+  height: 28px;
+  margin: 0 auto 4px;
+  position: relative;
+}
+
+.tea-room .tea-pot .chip-stack i {
+  position: absolute;
+  left: 50%;
+  width: 34px;
+  height: 12px;
+  margin-left: -17px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, #fff3c4 0%, #f0d78c 30%, var(--gold-deep, #b8922e) 58%, #6a4e18 100%) !important;
+  box-shadow:
+    0 1px 0 #3a2808,
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 0 0 2px rgba(90, 60, 10, 0.28);
+  display: block !important;
+}
+
+.tea-room .tea-toast,
+.tea-room .table-global-message.tea-toast {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  transform: translateX(-50%);
+  z-index: 5;
+  font-size: 0.62rem;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(244, 240, 230, 0.95);
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+  max-width: 82%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: tea-toast-in 0.22s ease-out;
+}
+
+@keyframes tea-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.tea-room .deck-pile {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  transform: translate(-50%, -50%);
+  width: 42px;
+  height: 58px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gold);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  color: rgba(221, 229, 214, 0.48);
-  font-size: 10px;
-  line-height: 1.2;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.55);
-  pointer-events: none;
+  justify-content: flex-end;
   z-index: 3;
-}
-.table-room-info span:first-child {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: rgba(237, 213, 146, 0.56);
-  font-size: 11px;
+  pointer-events: none;
 }
 
-.pot-badge {
+.tea-room .deck-pile::before,
+.tea-room .deck-pile::after { display: none !important; content: none !important; }
+
+.tea-room .deck-stack {
   position: absolute;
-  left: 50%;
-  top: 49%;
-  transform: translate(-50%, -50%);
-  min-width: 74px;
-  padding: 6px 12px 7px;
+  inset: 0;
+}
+
+.tea-room .deck-stack i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36px;
+  height: 52px;
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(224, 192, 106, 0.25);
+  display: block !important;
+}
+
+.tea-room .deck-stack i:nth-child(1) { transform: translate(0px, 4px) rotate(-6deg); z-index: 1; opacity: 0.88; }
+.tea-room .deck-stack i:nth-child(2) { transform: translate(2px, 2px) rotate(-2deg); z-index: 2; opacity: 0.92; }
+.tea-room .deck-stack i:nth-child(3) { transform: translate(4px, 1px) rotate(2deg); z-index: 3; opacity: 0.96; }
+.tea-room .deck-stack i:nth-child(4) { transform: translate(6px, 0) rotate(5deg); z-index: 4; }
+
+.tea-room .deck-count {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 16px;
+  margin-top: 46px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(224, 192, 106, 0.35);
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.tea-room .deck-label {
+  display: none;
+}
+
+.tea-room .current-bet-marker,
+.tea-room .table-room-info { display: none; }
+
+/* —— 座位：倒计时 → 名 → 头像 → 簸 —— */
+.tea-room .seat-slot,
+.tea-room .seat-slot.tea-seat {
+  position: absolute;
+  z-index: 6;
+  width: 54px;
+  min-width: 54px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(15, 22, 20, 0.82), rgba(4, 8, 8, 0.72));
-  border: 1px solid rgba(232, 204, 126, 0.38);
-  box-shadow: 0 8px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.08);
-  z-index: 4;
-}
-.pot-label {
-  font-size: 9px;
-  color: rgba(232, 204, 126, 0.68);
-  font-weight: 500;
-}
-.pot-value {
-  color: #f2d77f;
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.deck-pile {
-  top: 27%;
-  width: 38px;
-  height: 54px;
-  border-radius: 5px;
-  z-index: 4;
-}
-.deck-pile::before {
-  top: 2px;
-  left: 2px;
-  right: -2px;
-  bottom: -2px;
-  border-radius: 5px;
-}
-.deck-pile::after {
-  font-size: 17px;
-}
-.deck-count { font-size: 16px; }
-.deck-label { font-size: 9px; }
-
-.seat-slot { z-index: 6; min-width: 54px; }
-.seat-box { gap: 2px; }
-.seat-name {
-  max-width: 58px;
-  font-size: 10px;
-  color: rgba(236, 241, 234, 0.88);
-}
-.seat-score { font-size: 10px; }
-.seat-stack-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: rgba(0,0,0,0.32);
-  border: 1px solid rgba(232,204,126,0.16);
-}
-.seat-stack-label {
-  font-size: 9px;
-  color: rgba(232,204,126,0.7);
-}
-.seat-bet-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px 2px 4px;
-  min-height: 18px;
-  border-radius: 999px;
-  background: rgba(17, 11, 8, 0.78);
-  border: 1px solid rgba(232,204,126,0.32);
-  color: #f2d77f;
-  font-size: 10px;
-  font-weight: 700;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
-}
-.chip-dot {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff2b6 0 14%, #d9493d 16% 56%, #8e1e1b 58% 100%);
-  border: 1px solid rgba(255,236,170,0.86);
-}
-.avatar { border-width: 1px; }
-.avatar span { font-size: 16px; }
-.empty-avatar {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  font-size: 11px;
-}
-.empty-num { width: 16px; height: 16px; font-size: 8px; }
-.ready-btn { font-size: 9px; padding: 2px 8px; }
-.ready-mark, .host-tag { font-size: 8px; }
-.banker-badge, .fold-badge, .disconnect-badge {
-  width: 18px;
-  height: 18px;
-  font-size: 9px;
-}
-.sanhua-badge {
-  min-width: 28px;
-  height: 16px;
-  font-size: 9px;
-  line-height: 16px;
-}
-
-.seat-vpos-0 { top: 2%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-1 { top: 11%; right: 6px; }
-.seat-vpos-2 { top: 34%; right: 6px; }
-.seat-vpos-3 { top: 57%; right: 6px; }
-.seat-vpos-4 { bottom: 5%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-5 { top: 57%; left: 6px; }
-.seat-vpos-6 { top: 34%; left: 6px; }
-.seat-vpos-7 { top: 11%; left: 6px; }
-
-.public-cards-vpos-0 { top: 12%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-1 { top: 14%; right: 58px; }
-.public-cards-vpos-2 { top: 37%; right: 58px; }
-.public-cards-vpos-3 { top: 60%; right: 58px; }
-.public-cards-vpos-4 { bottom: 18%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-5 { top: 60%; left: 58px; }
-.public-cards-vpos-6 { top: 37%; left: 58px; }
-.public-cards-vpos-7 { top: 14%; left: 58px; }
-.card-slot { width: 24px; height: 34px; }
-.my-hand-area { bottom: 0; }
-.my-hand .card-slot { width: 40px; height: 56px; }
-
-.hint-bar {
-  min-height: 22px;
-  padding: 3px 10px;
-  font-size: 11px;
-  color: rgba(219,226,221,0.62);
-}
-
-.bottom-bar {
-  align-items: stretch;
-  gap: 8px;
-  padding: 8px 10px 10px;
-  background:
-    linear-gradient(180deg, rgba(12, 31, 38, 0.96), #07151d 100%);
-  border-top: 1px solid rgba(232,204,126,0.18);
-}
-.bottom-btn {
-  width: 48px;
-  min-width: 48px;
-  border-radius: 12px;
-  padding: 7px 6px;
-}
-.action-buttons { align-items: stretch; }
-.bet-action-layout {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(126px, 0.78fr) minmax(150px, 1fr);
-  gap: 8px;
-  align-items: stretch;
-}
-.bet-main-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-.bet-main-actions .btn,
-.action-buttons > .btn {
-  min-height: 42px;
-  border-radius: 10px;
-  padding: 6px 8px;
-  font-size: 13px;
-}
-.wager-panel {
-  min-width: 0;
-  padding: 8px 9px 7px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.055);
-  border: 1px solid rgba(232,204,126,0.18);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-}
-.wager-head,
-.wager-range {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-.wager-head span {
-  color: rgba(232,204,126,0.78);
-  font-size: 11px;
-}
-.wager-head strong {
-  color: #f2d77f;
-  font-size: 18px;
-  line-height: 1;
-}
-.wager-slider {
-  width: 100%;
-  margin: 7px 0 4px;
-  accent-color: #d7b75a;
-}
-.wager-range {
-  color: rgba(220,226,220,0.52);
-  font-size: 9px;
-}
-.quick-amount {
-  margin-top: 6px;
-  justify-content: space-between;
-}
-.quick-amount .btn {
-  min-width: 38px;
-  min-height: 28px;
-  border-radius: 8px;
-  padding: 2px 7px;
-}
-
-/* ========== 2026-07 sketch-driven mobile room redesign ========== */
-.room-page.new-table {
-  max-width: 480px;
-  background:
-    radial-gradient(circle at 50% 12%, rgba(41, 92, 88, 0.22), transparent 30%),
-    linear-gradient(180deg, #101820 0%, #071013 54%, #040708 100%);
-  color: #edf1e8;
-}
-
-.table-top-strip {
-  display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) 86px;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px 6px;
-  flex-shrink: 0;
-  background: rgba(2, 6, 8, 0.72);
-  border-bottom: 1px solid rgba(221, 188, 103, 0.16);
-}
-
-.top-nav-btn {
-  min-height: 42px;
-  border: 1px solid rgba(221, 188, 103, 0.22);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015));
-  color: rgba(238, 235, 216, 0.88);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 4px 6px;
-  font-size: 12px;
-  line-height: 1.1;
-}
-
-.top-nav-btn strong {
-  min-width: 18px;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: rgba(221, 188, 103, 0.16);
-  color: #f0d77c;
-  font-size: 10px;
-  line-height: 16px;
-}
-
-.table-top-center {
-  min-width: 0;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.table-top-center .room-title {
-  color: #f0d77c;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.table-top-center .game-type-select {
-  max-width: 96px;
-  height: 24px;
-  border-radius: 7px;
-  border-color: rgba(221, 188, 103, 0.28);
-  background: rgba(0,0,0,0.32);
-  color: rgba(238,235,216,0.9);
-  font-size: 11px;
-}
-
-.game-area {
-  min-height: 0;
-  flex: 1 1 auto;
-  isolation: isolate;
-}
-
-.table-felt {
-  top: 48%;
-  width: calc(100% - 144px);
-  min-width: 232px;
-  max-width: 350px;
-  height: 58%;
-  min-height: 334px;
-  max-height: 416px;
-  border-radius: 20px;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.10), transparent 18%, transparent 72%, rgba(0,0,0,0.26)),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 16px),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0 1px, transparent 1px 16px),
-    radial-gradient(circle at 48% 30%, rgba(83, 154, 108, 0.35), transparent 32%),
-    linear-gradient(180deg, #255f3e 0%, #16442a 56%, #0a2919 100%);
-  border: 1px solid rgba(238, 210, 135, 0.72);
-  box-shadow:
-    0 20px 46px rgba(0,0,0,0.54),
-    inset 0 0 0 6px rgba(4, 18, 13, 0.56),
-    inset 0 0 0 8px rgba(230, 190, 92, 0.24),
-    inset 0 16px 34px rgba(255,255,255,0.08),
-    inset 0 -32px 46px rgba(0,0,0,0.32);
-}
-
-.table-felt::before {
-  inset: 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(238, 210, 135, 0.24);
-  box-shadow: inset 0 0 18px rgba(0,0,0,0.22);
-}
-
-.table-felt::after {
-  content: "";
-  position: absolute;
-  left: 22px;
-  right: 22px;
-  top: 18px;
-  bottom: 18px;
-  border-radius: 12px;
-  border: 1px dashed rgba(238, 210, 135, 0.12);
   pointer-events: none;
 }
 
-.table-felt.pixi-backed,
-.table-felt.pixi-backed::before,
-.table-felt.pixi-backed::after {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-.table-felt.pixi-backed::before,
-.table-felt.pixi-backed::after { display: none; }
-
-.deck-pile {
-  top: 23%;
-  width: 34px;
-  height: 48px;
-  border-radius: 5px;
-}
-.deck-count { font-size: 14px; }
-.deck-label { font-size: 8px; }
-
-.pot-badge {
-  top: 47%;
-  min-width: 82px;
-  border-radius: 13px;
-  padding: 6px 12px 7px;
-}
-.pot-label { font-size: 9px; }
-.pot-value { font-size: 20px; }
-
-.table-room-info {
-  top: 61%;
-  color: rgba(232, 236, 226, 0.42);
-}
-.table-room-info span:first-child {
-  color: rgba(238, 210, 135, 0.50);
+.tea-room .seat-slot.tea-seat .avatar-wrap,
+.tea-room .seat-slot.tea-seat .name,
+.tea-room .seat-slot.tea-seat .stack,
+.tea-room .seat-slot.tea-seat .timer-num,
+.tea-room .seat-slot.tea-seat .empty-seat {
+  pointer-events: auto;
 }
 
-.seat-slot {
-  z-index: 6;
-  width: 64px;
-  min-width: 64px;
-}
-.seat-slot.is-me { width: 82px; }
-.seat-box {
-  min-width: 58px;
-  padding: 3px 4px;
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.10);
-}
-.seat-slot.is-me .seat-box {
-  min-width: 76px;
-  background: rgba(0,0,0,0.16);
-}
-.seat-name { max-width: 60px; font-size: 10px; }
-.seat-slot.is-me .seat-name { max-width: 78px; }
-.avatar { border-radius: 10px; }
-.avatar-wrap { border-radius: 10px; }
-.seat-avatar-row .avatar { box-shadow: 0 2px 8px rgba(0,0,0,0.48); }
-.seat-stack-row { padding: 1px 6px; }
-
-.seat-vpos-0 { top: 1%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-1 { top: 9%; right: 8px; }
-.seat-vpos-2 { top: 34%; right: 8px; }
-.seat-vpos-3 { top: 59%; right: 8px; }
-.seat-vpos-4 { bottom: 1%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-5 { top: 59%; left: 8px; }
-.seat-vpos-6 { top: 34%; left: 8px; }
-.seat-vpos-7 { top: 9%; left: 8px; }
-
-.public-cards { gap: 2px; }
-.public-cards-vpos-0 { top: 13%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-1 { top: 14%; right: 74px; }
-.public-cards-vpos-2 { top: 39%; right: 74px; }
-.public-cards-vpos-3 { top: 64%; right: 74px; }
-.public-cards-vpos-4 { bottom: 17%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-5 { top: 64%; left: 74px; }
-.public-cards-vpos-6 { top: 39%; left: 74px; }
-.public-cards-vpos-7 { top: 14%; left: 74px; }
-.card-slot { width: 22px; height: 31px; }
-.my-hand-area { bottom: 2px; pointer-events: auto; }
-.my-hand { gap: 5px; }
-.my-hand .card-slot { width: 38px; height: 54px; }
-
-.hint-bar {
-  min-height: 20px;
-  padding: 2px 10px 4px;
-  background: #071013;
-  color: rgba(232,236,226,0.54);
+.tea-room .seat-slot.seat-hidden {
+  display: none !important;
 }
 
-.bottom-bar {
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) 54px;
-  align-items: stretch;
-  gap: 8px;
-  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(12, 28, 33, 0.98), #050b0f 100%);
-  border-top: 1px solid rgba(238, 210, 135, 0.18);
-}
-.bottom-btn {
-  width: 54px;
-  min-width: 54px;
-  border-radius: 9px;
-  padding: 6px 4px;
-  border: 1px solid rgba(238,210,135,0.22);
-  background: rgba(255,255,255,0.045);
-  color: rgba(238,235,216,0.86);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  font-size: 10px;
-}
-.bottom-btn .icon { font-size: 16px; line-height: 1; }
-.action-buttons {
-  min-width: 0;
-  justify-content: center;
-  align-items: stretch;
-}
-.action-buttons > .btn,
-.start-game-btn {
-  width: 100%;
-  min-height: 44px;
-  border-radius: 9px;
-  font-size: 15px;
-  font-weight: 800;
-}
-.bet-action-layout {
-  grid-template-columns: minmax(112px, 0.72fr) minmax(0, 1fr);
-  gap: 8px;
-}
-.bet-main-actions { gap: 6px; }
-.bet-main-actions .btn { min-height: 38px; border-radius: 9px; }
-.wager-panel { border-radius: 9px; padding: 7px 8px 6px; }
-.quick-amount { display: flex; gap: 5px; }
-.quick-amount .btn { min-width: 34px; min-height: 26px; }
-
-@media (max-width: 370px) {
-  .table-top-strip { grid-template-columns: 76px minmax(0, 1fr) 76px; gap: 6px; }
-  .top-nav-btn { font-size: 11px; }
-  .table-felt { width: calc(100% - 106px); min-width: 226px; }
-  .seat-slot { width: 58px; min-width: 58px; }
-  .public-cards-vpos-1, .public-cards-vpos-2, .public-cards-vpos-3 { right: 66px; }
-  .public-cards-vpos-5, .public-cards-vpos-6, .public-cards-vpos-7 { left: 66px; }
-  .bottom-bar { grid-template-columns: 48px minmax(0, 1fr) 48px; }
-  .bottom-btn { width: 48px; min-width: 48px; }
-  .bet-action-layout { grid-template-columns: 1fr; }
+.tea-room .timer-num {
+  order: 0;
+  min-height: 14px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  color: var(--timer);
+  text-shadow: 0 0 6px rgba(46, 230, 200, 0.55), 0 1px 2px #000;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.9);
 }
 
-/* ========== 2026-07 sketch correction: no table, edge seats, contextual action panel ========== */
-.room-page.new-table {
-  background: #082f3a;
-}
-
-.table-top-strip {
-  grid-template-columns: 96px minmax(0, 1fr) 96px;
-  min-height: 34px;
-  padding: 0 8px;
-  background: #09243a;
-  border-bottom: 0;
-}
-
-.top-nav-btn {
-  min-height: 34px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #ffea00;
-  align-items: flex-start;
-  padding: 0 4px;
-  font-size: 14px;
-  font-weight: 700;
-}
-.top-nav-btn.history-entry { align-items: flex-end; }
-.top-nav-btn strong { display: none; }
-.table-top-center .room-title { display: none; }
-.table-top-center .game-type-select {
-  height: 22px;
-  max-width: 82px;
-  font-size: 10px;
-  opacity: 0.75;
-}
-
-.game-area {
-  min-height: 0;
-  background: #083642;
-}
-
-.table-felt,
-.table-felt.pixi-backed {
-  position: absolute;
-  inset: 0;
-  top: 0;
-  left: 0;
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  height: 100%;
-  min-height: 0;
-  max-height: none;
-  transform: none;
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  display: block;
-  z-index: 1;
-}
-.table-felt::before,
-.table-felt::after,
-.table-felt.pixi-backed::before,
-.table-felt.pixi-backed::after {
-  display: none;
-}
-
-.deck-pile {
-  left: 50%;
-  top: 25%;
-  width: 44px;
-  height: 58px;
-  border-radius: 7px;
-  border: 2px solid #ff7a3d;
-  background: #f1f5f1;
-  color: #0f4660;
-  box-shadow: none;
-}
-.deck-pile::before { display: none; }
-.deck-pile::after {
-  content: "\724c\A\5806";
-  white-space: pre;
-  color: #0f4660;
-  font-size: 16px;
-  line-height: 1.1;
+.tea-room .timer-num.show,
+.tea-room .seat-slot.turn .timer-num {
   opacity: 1;
+  transform: scale(1);
+}
+
+.tea-room .seat-name.name {
+  order: 1;
+  position: relative;
+  z-index: 5;
+  font-size: 0.54rem;
+  max-width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(244, 240, 230, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  line-height: 1.15;
+  margin-bottom: 2px;
+}
+
+.tea-room .avatar-wrap-outer {
+  order: 2;
+  position: relative;
+  width: 38px;
+  height: 38px;
+}
+
+.tea-room .avatar-wrap {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  overflow: visible;
+  border-radius: 50%;
+}
+
+.tea-room .avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #3a2818, #16100c);
+  border: 2px solid rgba(224, 192, 106, 0.55);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.74rem;
+  color: var(--gold);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  position: relative;
   z-index: 1;
 }
-.deck-count,
-.deck-label { display: none; }
 
-.pot-badge {
-  left: 50%;
-  top: 48%;
-  min-width: 92px;
-  padding: 3px 12px;
-  flex-direction: row;
-  justify-content: center;
-  gap: 6px;
-  border-radius: 999px;
-  background: #116987;
-  border: 1px solid rgba(1, 12, 18, 0.65);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 4px rgba(0,0,0,0.28);
+.tea-room .avatar span {
+  color: var(--gold);
+  font-size: 0.74rem;
 }
-.pot-label,
-.pot-value {
-  color: #e8f7ff;
-  font-size: 14px;
-  font-weight: 500;
+
+.tea-room .seat-slot.turn .avatar,
+.tea-room .seat-avatar-row.turn-active .avatar {
+  border-color: rgba(46, 230, 200, 0.75);
+  box-shadow: 0 0 0 2px rgba(46, 230, 200, 0.25), 0 0 12px rgba(46, 230, 200, 0.35);
+  animation: none;
+}
+
+.tea-room .seat-slot.fold,
+.tea-room .seat-avatar-row.folded {
+  opacity: 0.4;
+  filter: grayscale(0.85);
+}
+
+.tea-room .seat-slot.disconnected {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.tea-room .seat-slot.ready .avatar {
+  border-color: rgba(76, 175, 80, 0.65);
+}
+
+.tea-room .stack,
+.tea-room .seat-stack-row.stack {
+  order: 3;
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 0 5px;
+  border-radius: 999px;
+  line-height: 1.35;
+  border: 1px solid rgba(224, 192, 106, 0.2);
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+.tea-room .seat-score {
+  color: var(--gold);
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+.tea-room .seat-stack-label { display: none; }
+
+.tea-room .timer-ring {
+  position: absolute;
+  inset: -5px;
+  width: 48px;
+  height: 48px;
+  top: -5px;
+  left: -5px;
+  transform: none;
+  pointer-events: none;
+  opacity: 1;
+  z-index: 2;
+}
+
+.tea-room .banker-badge.badge,
+.tea-room .banker-badge {
+  position: absolute;
+  top: -3px;
+  right: -7px;
+  background: var(--gold);
+  color: #1a1408;
+  font-size: 0.46rem;
+  font-weight: 900;
+  padding: 1px 4px;
+  border-radius: 999px;
+  z-index: 3;
+  width: auto;
+  height: auto;
+  min-width: 0;
   line-height: 1.2;
 }
 
-.table-room-info {
-  top: 61%;
-  color: rgba(35, 132, 161, 0.76);
-  font-size: 13px;
-  gap: 2px;
-  text-shadow: none;
-}
-.table-room-info span:first-child {
-  color: rgba(35, 132, 161, 0.76);
-  font-size: 14px;
+.tea-room .avatar-wrap-outer .fold-badge,
+.tea-room .avatar-wrap-outer .disconnect-badge,
+.tea-room .avatar-wrap-outer .sanhua-badge,
+.tea-room .avatar-wrap-outer .broke-badge {
+  z-index: 4;
 }
 
-.current-bet-marker {
+/* 敲：火焰贴头像两侧，不挡名字 */
+.tea-room .seat-slot.knock .avatar,
+.tea-room .seat-avatar-row.knocked .avatar {
+  border-color: #ff6a2a !important;
+  box-shadow: 0 0 10px rgba(255, 100, 30, 0.55), 0 0 18px rgba(255, 60, 0, 0.35);
+}
+
+.tea-room .flame {
   position: absolute;
   left: 50%;
-  top: 72%;
-  transform: translate(-50%, -50%);
+  top: 10%;
+  width: 46px;
+  height: 26px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 1;
+}
+
+.tea-room .flame span {
+  position: absolute;
+  top: 0;
+  border-radius: 45% 45% 40% 40%;
+  background: radial-gradient(circle at 50% 80%, #fff6a0 0%, #ffb020 28%, #ff5a00 62%, transparent 78%);
+  filter: blur(0.3px);
+  animation: tea-flicker 0.35s ease-in-out infinite alternate;
+  transform-origin: 50% 90%;
+}
+
+.tea-room .flame span:nth-child(1) {
+  left: 2px; width: 12px; height: 16px; top: 4px;
+  animation-duration: 0.32s;
+}
+.tea-room .flame span:nth-child(2) {
+  right: 2px; left: auto; width: 11px; height: 15px; top: 5px;
+  background: radial-gradient(circle at 50% 80%, #ffe080 0%, #ff7a00 50%, transparent 75%);
+  animation-duration: 0.28s; animation-delay: 0.05s;
+}
+.tea-room .flame span:nth-child(3) {
+  left: 50%; margin-left: -6px; width: 12px; height: 12px; top: 12px;
+  background: radial-gradient(circle at 50% 70%, #fff 0%, #ff9a20 40%, transparent 72%);
+  animation-duration: 0.4s; animation-delay: 0.08s;
+}
+
+@keyframes tea-flicker {
+  from { transform: scaleY(1) scaleX(1) rotate(-2deg); opacity: 0.85; }
+  to { transform: scaleY(1.1) scaleX(0.94) rotate(3deg); opacity: 1; }
+}
+
+.tea-room .burning-effect { display: none; }
+
+.tea-room .seat-bet-chip {
+  order: 4;
+  position: static;
+  transform: none;
+  left: auto;
+  top: auto;
+  color: var(--gold);
+  font-size: 0.5rem;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.tea-room .ready-mark,
+.tea-room .host-tag {
+  order: 5;
+  color: var(--gold);
+  font-size: 0.5rem;
+}
+
+.tea-room .empty-avatar,
+.tea-room .empty-avatar.seat-num-avatar {
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(160deg, #3a2818, #16100c) !important;
+  border: 2px dashed rgba(224, 192, 106, 0.45) !important;
+  color: var(--gold) !important;
+  font-size: 0.7rem !important;
+  font-weight: 800 !important;
+  box-shadow: none !important;
+  /* 清掉旧 sketch 的齿轮/花边外观 */
+  clip-path: none !important;
+  -webkit-mask: none !important;
+  mask: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  text-align: center !important;
+}
+
+.tea-room .empty-sit-hint {
+  margin-top: 2px;
+  font-size: 0.5rem;
+  color: var(--muted);
+}
+
+.tea-room .empty-seat:hover .empty-avatar,
+.tea-room .empty-seat:hover .empty-avatar.seat-num-avatar {
+  background: linear-gradient(160deg, #4a3420, #1a120c) !important;
+  border-color: rgba(224, 192, 106, 0.7) !important;
+  color: var(--gold) !important;
+}
+
+/* 座位环：头像完全在桌外；左右用负边距再外推 */
+.tea-room .seat-slot.tea-seat {
+  width: 52px;
+  min-width: 52px;
+}
+.tea-room .seat-vpos-0 { top: -2%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
+.tea-room .seat-vpos-1 { top: 7%; right: -2px; left: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-2 { top: 35%; right: -2px; left: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-3 { top: 63%; right: -2px; left: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-4 { bottom: 0; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
+.tea-room .seat-vpos-5 { top: 63%; left: -2px; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-6 { top: 35%; left: -2px; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-7 { top: 7%; left: -2px; right: auto; bottom: auto; transform: none; }
+
+/* 公牌锚点随桌内收同步 */
+.tea-room .public-cards-vpos-0 { top: 20%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
+.tea-room .public-cards-vpos-1 { top: 16%; right: 16%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-2 { top: 40%; right: 15%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-3 { top: 68%; right: 16%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-4 { bottom: 12%; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
+.tea-room .public-cards-vpos-5 { top: 68%; left: 16%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-6 { top: 40%; left: 15%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-7 { top: 16%; left: 16%; right: auto; bottom: auto; transform: none; }
+
+/* 取消旧布局对底中自己座位的抬高 */
+.tea-room .seat-vpos-4.is-me,
+.tea-room .self-seat-slot,
+.tea-room.action-open .seat-vpos-4.is-me,
+.tea-room.action-open .self-seat-slot,
+.tea-room:not(.action-open) .seat-vpos-4.is-me,
+.tea-room:not(.action-open) .self-seat-slot {
+  display: none !important;
+}
+
+/* 桌内公牌锚点（对照静态稿 tc*） */
+.tea-room .public-cards {
+  position: absolute;
+  z-index: 5;
+  gap: 2px;
+  pointer-events: none;
+  display: flex;
+}
+
+.tea-room .public-cards-vpos-0 { top: 20%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
+.tea-room .public-cards-vpos-1 { top: 16%; right: 14%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-2 { top: 40%; right: 13%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-3 { top: 70%; right: 14%; left: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-4 { bottom: 12%; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
+.tea-room .public-cards-vpos-5 { top: 70%; left: 14%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-6 { top: 40%; left: 13%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-7 { top: 16%; left: 14%; right: auto; bottom: auto; transform: none; }
+
+.tea-room .public-cards .card-slot {
+  width: 26px;
+  height: 38px;
+}
+
+.tea-room .public-cards.split-display {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.tea-room .public-cards.split-display .split-label {
+  display: none; /* 阶段 E 再彻底去标签；阶段 A 先隐藏视觉 */
+}
+
+.tea-room .public-cards.split-display .split-divider {
+  display: none;
+}
+
+.tea-room .public-cards.split-display .split-group {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+/* —— 底部 HUD —— */
+.tea-room .tea-hud {
+  z-index: 20;
+  position: relative;
+  padding: 2px 10px calc(6px + var(--safe-b));
+  background: linear-gradient(180deg, rgba(7, 20, 15, 0) 0%, rgba(7, 20, 15, 0.88) 16%, rgba(7, 20, 15, 0.97) 100%);
+  border-top: 1px solid rgba(224, 192, 106, 0.12);
+  flex-shrink: 0;
+}
+
+.tea-room .self-timer {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 0 2px;
+}
+
+.tea-room .self-timer.show { display: flex; }
+
+.tea-room .self-timer .label {
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: var(--timer);
+  min-width: 28px;
+  text-align: right;
+  text-shadow: 0 0 6px rgba(46, 230, 200, 0.4);
+}
+
+.tea-room .self-timer .track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  border: 1px solid rgba(46, 230, 200, 0.2);
+}
+
+.tea-room .self-timer .fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1bb89e, var(--timer));
+  box-shadow: 0 0 8px rgba(46, 230, 200, 0.45);
+  transition: width 0.2s linear;
+}
+
+.tea-room .self-timer .tip {
+  font-size: 0.52rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tea-room .self-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.tea-room .self-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tea-room .self-id .av-wrap {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.tea-room .self-id .av-wrap .banker-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  background: var(--gold);
+  color: #1a1408;
+  font-size: 0.42rem;
+  font-weight: 900;
+  padding: 1px 3px;
+  border-radius: 999px;
+  z-index: 3;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.tea-room .self-id .av-wrap .avatar-wrap {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.tea-room .self-id .av-wrap .avatar {
+  width: 28px !important;
+  height: 28px !important;
+  border: 1.5px solid var(--gold);
+  background: #24180e;
+  font-size: 0.65rem;
+}
+
+.tea-room .self-id.my-turn .av-wrap .avatar {
+  border-color: var(--timer);
+  box-shadow: 0 0 8px rgba(46, 230, 200, 0.4);
+}
+
+.tea-room .self-id .nm {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.tea-room .self-id .sk {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--gold);
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #d9f4ff;
-  font-size: 12px;
-  z-index: 4;
 }
-.current-bet-dot {
+
+.tea-room .self-id .sk.sk-low {
+  color: #ffb04a;
+}
+
+.tea-room .add-buyin-bubble {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  border: 1px solid rgba(224, 192, 106, 0.55);
+  background: rgba(20, 28, 18, 0.92);
+  color: var(--gold);
+  font-size: 0.52rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  animation: tea-buyin-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(224, 192, 106, 0.25);
+  z-index: 3;
+}
+
+.tea-room .add-buyin-bubble::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  background: rgba(20, 28, 18, 0.92);
+  border-left: 1px solid rgba(224, 192, 106, 0.55);
+  border-bottom: 1px solid rgba(224, 192, 106, 0.55);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+@keyframes tea-buyin-pulse {
+  0%, 100% { opacity: 0.55; transform: translateY(-50%) scale(1); }
+  50% { opacity: 1; transform: translateY(-50%) scale(1.06); }
+}
+
+.tea-room .hint-mini {
+  font-size: 0.52rem;
+  color: var(--muted);
+  text-align: right;
+  max-width: 55%;
+  line-height: 1.3;
+}
+
+.tea-room .hint-mini.private-guide {
+  color: rgba(224, 192, 106, 0.92);
+}
+
+/* 叠在 HUD 上方，不占文档流，避免撑高操作栏 */
+.tea-room .msg-feed {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 2px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 3.9em;
+  max-height: 3.9em;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.tea-room .msg-feed-item {
+  font-size: 0.52rem;
+  line-height: 1.25;
+  color: rgba(244, 240, 230, 0.78);
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 1px 7px;
+  max-width: 92%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: tea-feed-in 0.18s ease-out;
+}
+
+.tea-room .msg-feed-item.kind-phase {
+  color: rgba(224, 192, 106, 0.75);
+  background: transparent;
+  padding-right: 2px;
+}
+
+.tea-room .msg-feed-item.kind-system {
+  color: rgba(180, 210, 255, 0.88);
+}
+
+.tea-room .msg-feed-item.kind-error {
+  color: rgba(255, 170, 140, 0.95);
+}
+
+@keyframes tea-feed-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 手牌进 HUD：取消绝对定位 */
+.tea-room .tea-hud .my-hand-area,
+.tea-room.action-open .tea-hud .my-hand-area,
+.tea-room:not(.action-open) .tea-hud .my-hand-area {
+  position: relative;
+  bottom: auto !important;
+  left: auto;
+  transform: none;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+  min-height: 70px;
+}
+
+.tea-room .tea-hud .my-hand {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  min-height: 70px;
+}
+
+.tea-room .tea-hud .my-hand .card-slot {
+  width: 48px;
+  height: 70px;
+}
+
+/* 操作区由 .tea-bar 接管（旧 bottom-bar / turn-action-panel 已移除） */
+
+/* 菜单底部 sheet */
+.tea-room .menu-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  display: block;
+}
+
+.tea-room .menu-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #15261e;
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid rgba(224, 192, 106, 0.3);
+  padding: 10px 14px calc(16px + var(--safe-b));
+  transform: translateY(0);
+}
+
+.tea-room .grab {
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 auto 10px;
+}
+
+.tea-room .menu-item {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 6px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: none;
+  color: var(--ink);
+  font: 500 0.9rem/1 inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tea-room .menu-item span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.tea-room .menu-item.danger { color: #e8a090; }
+
+.tea-room .spectator-sheet-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+
+.tea-room .spectator-sheet-empty {
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 8px 0 12px;
+}
+
+.tea-room .spectator-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.tea-room .spectator-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.tea-room .hint-bar { display: none !important; }
+.tea-room .table-top-strip { display: none !important; }
+.tea-room .menu-popover { display: none !important; }
+
+.tea-room .history-panel {
+  z-index: 50;
+  background: rgba(21, 38, 30, 0.98);
+  border: 1px solid rgba(224, 192, 106, 0.28);
+}
+
+@media (max-width: 370px) {
+  .tea-room .public-cards-vpos-1,
+  .tea-room .public-cards-vpos-2,
+  .tea-room .public-cards-vpos-3 { right: 12%; }
+  .tea-room .public-cards-vpos-5,
+  .tea-room .public-cards-vpos-6,
+  .tea-room .public-cards-vpos-7 { left: 12%; }
+}
+
+/* ========== 茶馆风格 · 阶段 B 操作区 ========== */
+.tea-room .tea-action-root {
+  width: 100%;
+}
+
+.tea-room .tea-bar {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.tea-room .tea-bar.show { display: flex; }
+
+.tea-room .tea-bar .side {
+  display: flex;
+  gap: 6px;
+}
+
+.tea-room .tea-pill {
+  height: 36px;
+  min-width: 48px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 240, 230, 0.16);
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.tea-room .tea-pill.danger {
+  border-color: rgba(212, 106, 88, 0.5);
+  color: #f0c0b4;
+  background: rgba(80, 24, 18, 0.5);
+}
+
+.tea-room .tea-pill:disabled,
+.tea-room .tea-cta:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.tea-room .tea-cta {
+  height: 44px;
+  min-width: 112px;
+  padding: 4px 16px 6px;
+  border-radius: 999px;
+  border: 0;
+  background: linear-gradient(180deg, #f0d78c, #c9a84a);
+  color: #1a1408;
+  font-weight: 900;
+  font-size: 0.9rem;
+  box-shadow: 0 3px 0 #8a6d28, 0 6px 12px rgba(0, 0, 0, 0.3);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  touch-action: none;
+  user-select: none;
+  position: relative;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.05;
+}
+
+.tea-room .tea-cta .cta-verb {
+  font-size: 0.58rem;
+  font-weight: 600;
+  opacity: 0.55;
+  letter-spacing: 0.04em;
+}
+
+.tea-room .tea-cta em,
+.tea-room .tea-cta .cta-value {
+  font-style: normal;
+  font-size: 1.05rem;
+  opacity: 1;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.tea-room .tea-cta.dragging {
+  filter: brightness(1.08);
+  transform: scale(1.03);
+}
+
+.tea-room .tea-cta.ok {
+  background: linear-gradient(180deg, #9fd89a, #5a9e55);
+  box-shadow: 0 3px 0 #3d6b38;
+  min-width: 68px;
+  flex-direction: row;
+}
+
+.tea-room .tea-cta .drag-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  transform: translateX(-50%);
+  font-size: 0.42rem;
+  font-weight: 500;
+  opacity: 0.35;
+  white-space: nowrap;
+  pointer-events: none;
+  color: #1a1408;
+}
+
+.tea-room .tea-cta.dragging .drag-hint { opacity: 0.7; }
+
+.tea-room .tea-bar.short .tea-pill {
+  flex: 1;
+  max-width: 140px;
+  height: 42px;
+  font-size: 0.9rem;
+}
+
+.tea-room .tea-bar.open { gap: 6px; }
+
+.tea-room .tea-bar.split .tea-pill,
+.tea-room .tea-bar.split .tea-cta {
+  min-width: 110px;
+  height: 42px;
+}
+
+.tea-room .tea-idle {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+/* 手牌：轻微扇形 + 选中上移描金 */
+.tea-room .tea-hud .my-hand .card-slot:nth-child(1) .card { transform: rotate(-4deg); }
+.tea-room .tea-hud .my-hand .card-slot:nth-child(2) .card { transform: rotate(-1deg); }
+.tea-room .tea-hud .my-hand .card-slot:nth-child(3) .card { transform: rotate(1deg); }
+.tea-room .tea-hud .my-hand .card-slot:nth-child(4) .card { transform: rotate(4deg); }
+
+.tea-room .tea-hud .my-hand .card.selected {
+  transform: none !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.32);
+  outline: none;
+}
+
+.tea-room .tea-hud .my-hand.selectable .card.selected {
+  transform: translateY(-8px) rotate(0deg) !important;
+  box-shadow: 0 6px 14px rgba(224, 192, 106, 0.45);
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+/* ========== 茶馆风格 · 阶段 C 倒计时 / 敲火焰 ========== */
+.tea-room .seat-slot.turn.urgent .timer-num {
+  color: var(--timer-warn);
+  text-shadow: 0 0 6px rgba(255, 138, 61, 0.6);
+}
+.tea-room .seat-slot.turn.critical .timer-num {
+  color: var(--timer-crit);
+  text-shadow: 0 0 8px rgba(255, 77, 77, 0.7);
+  animation: tea-pulse-num 0.5s ease infinite;
+}
+@keyframes tea-pulse-num {
+  50% { transform: scale(1.12); }
+}
+
+.tea-room .seat-slot.turn.urgent .timer-ring-fg {
+  filter: drop-shadow(0 0 3px rgba(255, 138, 61, 0.7));
+}
+.tea-room .seat-slot.turn.critical .timer-ring-fg {
+  filter: drop-shadow(0 0 4px rgba(255, 77, 77, 0.8));
+  animation: tea-timer-pulse 0.7s ease-in-out infinite;
+}
+.tea-room .seat-slot.turn .timer-ring-fg {
+  filter: drop-shadow(0 0 3px rgba(46, 230, 200, 0.7));
+  transition: stroke-dashoffset 0.95s linear, stroke 0.25s ease;
+}
+@keyframes tea-timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* 名字始终压过火焰 */
+.tea-room .seat-name.name {
+  z-index: 5;
+}
+.tea-room .flame {
+  z-index: 0;
+}
+.tea-room .avatar {
+  z-index: 1;
+}
+.tea-room .timer-ring {
+  z-index: 2;
+}
+
+.tea-room .self-timer.urgent .label { color: var(--timer-warn); }
+.tea-room .self-timer.critical .label {
+  color: var(--timer-crit);
+  animation: tea-pulse-num 0.5s ease infinite;
+}
+.tea-room .self-timer.urgent .fill {
+  background: linear-gradient(90deg, #e07020, var(--timer-warn));
+  box-shadow: 0 0 8px rgba(255, 138, 61, 0.45);
+}
+.tea-room .self-timer.critical .fill {
+  background: linear-gradient(90deg, #c03030, var(--timer-crit));
+  box-shadow: 0 0 8px rgba(255, 77, 77, 0.5);
+}
+.tea-room .self-timer .fill {
+  transition: width 0.2s linear, background 0.2s;
+}
+
+.tea-room .self-id.my-turn .av-wrap .avatar {
+  border-color: var(--timer);
+  box-shadow: 0 0 8px rgba(46, 230, 200, 0.4);
+}
+.tea-room .self-id.urgent .av-wrap .avatar {
+  border-color: var(--timer-warn);
+  box-shadow: 0 0 8px rgba(255, 138, 61, 0.4);
+}
+.tea-room .self-id.critical .av-wrap .avatar {
+  border-color: var(--timer-crit);
+  box-shadow: 0 0 8px rgba(255, 77, 77, 0.45);
+}
+
+.tea-room .self-id .av-wrap .timer-ring {
+  inset: -4px;
+  width: 36px;
+  height: 36px;
+  top: -4px;
+  left: -4px;
+}
+
+/* ========== 茶馆风格 · 阶段 D 发牌 / 飞筹码 ========== */
+.tea-room .tea-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.tea-room .tea-fly-card {
+  position: absolute;
+  width: 28px;
+  height: 40px;
+  border-radius: 3px;
+  background-color: #3a1a10;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(212, 175, 55, 0.65);
+  opacity: 0;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  z-index: 16;
+}
+
+.tea-room .tea-fly-chip {
+  position: absolute;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid #eaf8ff;
-  background: transparent;
-}
-
-.seat-slot {
-  z-index: 6;
-  width: 62px;
-  min-width: 62px;
-}
-.seat-slot.is-me { width: 70px; }
-.seat-box,
-.seat-slot.is-me .seat-box {
-  min-width: 54px;
-  padding: 0;
-  background: transparent;
-  border-radius: 0;
-  gap: 2px;
-}
-.seat-name {
-  order: -1;
-  max-width: 56px;
-  color: #ffea00;
-  font-size: 8px;
-  font-weight: 500;
-  text-shadow: none;
-}
-.seat-score {
-  color: #ffea00;
-  font-size: 8px;
-  font-weight: 600;
-  text-shadow: none;
-}
-.seat-stack-row {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  gap: 0;
-}
-.seat-stack-label { display: none; }
-.avatar-wrap,
-.avatar {
-  border-radius: 7px;
-}
-.avatar {
-  background: #eef4ef;
-  border: 2px solid #ffea00;
-  color: #0b3440;
-  box-shadow: none;
-}
-.avatar span {
-  color: #0b3440;
-  font-size: 14px;
-}
-.seat-slot.is-me .seat-name { max-width: 64px; color: #ffea00; }
-.seat-slot.is-me .avatar { border-color: #ffea00; }
-.ready-btn { display: none; }
-.ready-mark,
-.host-tag { color: #ffea00; font-size: 8px; }
-.banker-badge,
-.fold-badge,
-.disconnect-badge {
-  width: 16px;
-  height: 16px;
-  font-size: 8px;
-}
-.sanhua-badge {
-  min-width: 26px;
-  height: 15px;
-  font-size: 8px;
-  line-height: 15px;
-}
-.seat-bet-chip {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 1px);
-  transform: translateX(-50%);
-  padding: 0;
-  min-height: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  color: #ffea00;
-  font-size: 8px;
-}
-.seat-bet-chip .chip-dot { display: none; }
-.empty-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 7px;
-  background: #eef4ef;
-  border: 2px solid #ffea00;
-  color: transparent;
-  font-size: 0;
-}
-.empty-num { display: none; }
-
-.seat-vpos-0 { top: 2%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-1 { top: 17%; right: 2px; }
-.seat-vpos-2 { top: 45%; right: 2px; }
-.seat-vpos-3 { top: 72%; right: 2px; }
-.seat-vpos-4 { bottom: 3%; left: 50%; transform: translateX(-50%); }
-.seat-vpos-5 { top: 72%; left: 2px; }
-.seat-vpos-6 { top: 45%; left: 2px; }
-.seat-vpos-7 { top: 17%; left: 2px; }
-
-.public-cards-vpos-0 { top: 11%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-1 { top: 19%; right: 56px; }
-.public-cards-vpos-2 { top: 47%; right: 56px; }
-.public-cards-vpos-3 { top: 74%; right: 56px; }
-.public-cards-vpos-4 { bottom: 14%; left: 50%; transform: translateX(-50%); }
-.public-cards-vpos-5 { top: 74%; left: 56px; }
-.public-cards-vpos-6 { top: 47%; left: 56px; }
-.public-cards-vpos-7 { top: 19%; left: 56px; }
-
-.my-hand-area {
-  bottom: 2px;
-  z-index: 8;
-}
-.my-hand .card-slot {
-  width: 34px;
-  height: 48px;
-}
-
-.hint-bar {
-  display: none;
-}
-
-.bottom-bar {
-  min-height: 42px;
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
-  align-items: end;
-  gap: 8px;
-  padding: 4px 6px 6px;
-  background: #09243a;
-  border-top: 0;
-}
-.bottom-btn {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  align-self: end;
-  border-radius: 5px;
-  padding: 0;
-  border: 2px solid #d7f8ff;
-  background: #116987;
-  color: #fff;
-}
-.bottom-btn .icon {
-  font-size: 14px;
-  line-height: 1;
-}
-.bottom-btn span:not(.icon) { display: none; }
-.action-buttons {
-  min-width: 0;
-  display: flex;
-  justify-content: center;
-  align-items: end;
-}
-.start-game-btn,
-.action-buttons > .btn {
-  width: min(124px, 100%);
-  min-height: 26px;
-  border-radius: 4px;
-  padding: 3px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  background: #116987;
-  border: 1px solid rgba(0,0,0,0.45);
-  color: #e8f7ff;
-}
-.action-idle {
-  min-height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(232,247,255,0.35);
-  font-size: 12px;
-}
-.bet-action-layout,
-.action-popover {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(92px, 0.75fr) minmax(128px, 1fr);
-  gap: 6px;
-  align-items: end;
-}
-.bet-main-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px;
-}
-.bet-main-actions .btn,
-.split-action-layout .btn {
-  min-height: 30px;
-  border-radius: 999px;
-  padding: 4px 7px;
-  font-size: 13px;
-  border: 2px solid #fff;
-  background: #f27b36;
-  color: #fff;
-}
-.bet-main-actions .btn-primary,
-.split-action-layout .btn-primary {
-  background: #f27b36;
-}
-.wager-panel {
-  min-width: 0;
-  padding: 0 2px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.wager-head {
-  justify-content: center;
-  gap: 6px;
-  color: #d9f4ff;
-}
-.wager-head span { display: none; }
-.wager-head strong {
-  color: #d9f4ff;
-  font-size: 11px;
-  font-weight: 600;
-}
-.wager-slider {
-  margin: 2px 0 0;
-  accent-color: #d9f4ff;
-}
-.wager-range {
-  color: #d9f4ff;
-  font-size: 8px;
-}
-.quick-amount {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 2px;
-}
-.quick-amount .btn {
-  min-width: 28px;
-  min-height: 20px;
-  border-radius: 999px;
-  padding: 1px 5px;
-  font-size: 10px;
-}
-.split-action-layout {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-@media (max-width: 370px) {
-  .table-top-strip { grid-template-columns: 84px minmax(0, 1fr) 84px; }
-  .top-nav-btn { font-size: 13px; }
-  .bet-action-layout,
-  .action-popover { grid-template-columns: 1fr; }
-}
-
-/* Keep the local player seat clear of the bottom hand/action controls. */
-.seat-vpos-4.is-me {
-  bottom: 15%;
-}
-
-/* ========== 2026-07 action layout correction: controls float around hand, not in footer ========== */
-.room-page.new-table:not(.action-open) .seat-vpos-4.is-me {
-  bottom: 3%;
-}
-.room-page.new-table.action-open .seat-vpos-4.is-me {
-  bottom: 15%;
-}
-
-.turn-action-panel {
-  position: absolute;
-  left: 50%;
-  bottom: calc(38px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  width: min(350px, calc(100% - 54px));
-  height: 148px;
-  z-index: 18;
-  pointer-events: none;
-}
-
-.turn-action-panel .btn,
-.turn-action-panel input {
-  pointer-events: auto;
-}
-
-.turn-action-group {
-  position: absolute;
-  bottom: 12px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.turn-action-left {
-  left: 0;
-}
-.turn-action-right {
-  right: 0;
-}
-.turn-action-group.single-action {
-  bottom: 24px;
-}
-
-.action-orb,
-.bet-main-actions .action-orb,
-.split-action-layout .action-orb {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  border-radius: 999px;
-  padding: 0;
-  border: 2px solid rgba(255,255,255,0.95);
-  background: linear-gradient(180deg, #f1863e, #df632b);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 800;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.24);
-}
-
-.turn-wager-panel {
-  position: absolute;
-  right: 82px;
-  bottom: 12px;
-  width: 46px;
-  height: 118px;
-  display: grid;
-  grid-template-rows: 18px 1fr 28px;
-  justify-items: center;
-  align-items: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.turn-wager-panel .wager-head {
-  height: 18px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.turn-wager-panel .wager-head span {
-  display: none;
-}
-.turn-wager-panel .wager-head strong {
-  color: #e8f7ff;
-  font-size: 9px;
-  font-weight: 700;
-}
-.turn-wager-panel .wager-slider {
-  width: 86px;
-  height: 24px;
-  margin: 0;
-  transform: rotate(-90deg);
-  transform-origin: center;
-  accent-color: #e8f7ff;
-}
-.turn-wager-panel .wager-range {
-  width: 92px;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: #e8f7ff;
-  font-size: 10px;
-  line-height: 1;
-  transform: translateX(-18px);
-}
-.turn-wager-panel .quick-amount {
-  display: none;
-}
-
-.split-turn-panel {
-  height: 72px;
-}
-.split-turn-panel .split-action-layout {
-  position: absolute;
-  left: 50%;
-  bottom: 8px;
-  transform: translateX(-50%);
-  width: min(210px, 100%);
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-}
-
-.bottom-bar {
-  min-height: 38px;
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
-  align-items: end;
-}
-.action-buttons {
-  min-height: 28px;
-}
-.action-buttons .action-idle:empty {
-  visibility: hidden;
-}
-
-.room-page.new-table.action-open .my-hand-area {
-  bottom: 82px;
-}
-
-@media (max-width: 370px) {
-  .turn-action-panel {
-    width: calc(100% - 48px);
-  }
-  .action-orb,
-  .bet-main-actions .action-orb,
-  .split-action-layout .action-orb {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
-    min-height: 40px;
-    font-size: 16px;
-  }
-  .turn-wager-panel {
-    right: 70px;
-  }
-}
-
-
-/* 2026-07 rules/UI polish pass */
-.table-top-strip {
-  grid-template-columns: 104px minmax(0, 1fr) 96px;
-  overflow: hidden;
-}
-.spectator-roster {
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0;
-  overflow: hidden;
-}
-.spectator-avatar-list {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  max-width: 96px;
-  min-height: 24px;
-  padding-left: 3px;
-  overflow: hidden;
-}
-.spectator-avatar-dot {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #1b6b7a, #0e4350);
-  border: 1px solid rgba(216, 244, 255, 0.82);
-  color: #e8f7ff;
-  font-size: 10px;
-  line-height: 20px;
-  text-align: center;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-}
-.spectator-avatar-dot + .spectator-avatar-dot {
-  margin-left: -7px;
-}
-.spectator-avatar-dot img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.spectator-avatar-list strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  margin-left: -5px;
-  border-radius: 50%;
-  background: rgba(8, 45, 54, 0.92);
-  border: 1px solid rgba(216, 244, 255, 0.52);
-  color: #d9f4ff;
-  font-size: 10px;
-  line-height: 1;
-}
-.table-top-center .room-title,
-.room-code-pill {
-  display: none !important;
-}
-.room-code-pill {
-  color: rgba(232, 247, 255, 0.58);
-  font-size: 10px;
-  line-height: 1;
-}
-.game-type-select { display: none !important; }
-
-.table-global-message {
-  position: absolute;
-  left: 50%;
-  top: 36%;
-  width: min(220px, 66%);
-  min-height: 20px;
-  transform: translate(-50%, -50%);
-  color: #e8f7ff;
-  font-size: 13px;
-  line-height: 1.25;
-  text-align: center;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
-  z-index: 4;
-  pointer-events: none;
-}
-.table-room-info {
-  display: none !important;
-}
-.pot-badge {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  min-width: 0 !important;
-  gap: 5px;
-}
-.pot-label,
-.pot-value {
-  color: #e8f7ff !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-}
-
-.empty-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: rgba(10, 58, 70, 0.62);
-  border: 1px dashed rgba(216, 244, 255, 0.42);
-  color: rgba(232, 247, 255, 0.58);
-  font-size: 10px;
-}
-.empty-seat:hover .empty-avatar {
-  background: rgba(17, 105, 135, 0.68);
-  border-color: rgba(216, 244, 255, 0.72);
-  color: #e8f7ff;
-}
-.self-seat-box {
-  min-width: 56px !important;
-  gap: 2px;
-}
-.self-chip-stack {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 48px;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: rgba(12, 50, 61, 0.82);
-  border: 1px solid rgba(232, 247, 255, 0.46);
-  color: #ffea00;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 5px rgba(0,0,0,0.28);
-}
-.self-chip-stack strong {
-  font-size: 12px;
-  line-height: 1;
-}
-.self-chip-stack.turn-active {
-  border-color: rgba(255, 234, 0, 0.9);
-  box-shadow: 0 0 10px rgba(255, 234, 0, 0.38), inset 0 1px 0 rgba(255,255,255,0.18);
-}
-.chip-dot,
-.seat-bet-chip .chip-dot,
-.self-chip-stack .chip-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
   background:
-    radial-gradient(circle at 50% 50%, #f7fcff 0 28%, transparent 30%),
-    conic-gradient(#f3d56a 0 15%, #b43535 15% 30%, #f3d56a 30% 45%, #1f6fa3 45% 60%, #f3d56a 60% 75%, #b43535 75% 90%, #f3d56a 90% 100%);
-  border: 1px solid rgba(255,255,255,0.86);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.36);
+    radial-gradient(circle at 32% 28%, #fff3c4 0%, #f0d78c 28%, #c9a227 62%, #6a4e18 100%);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.22),
+    inset 0 0 0 3.5px rgba(90, 60, 10, 0.35);
+  opacity: 0;
+  z-index: 16;
 }
-.seat-bet-chip {
-  display: inline-flex;
+
+/* 发牌期间隐藏旧 deal-card 类（若有残留） */
+.tea-room .deal-card { display: none !important; }
+
+/* ========== 茶馆风格 · 阶段 E 比牌 / 收尾 ========== */
+.tea-room .public-cards.split2 {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 3px;
-  color: #ffea00;
-  font-size: 9px;
 }
-.seat-bet-chip .chip-dot { display: inline-block; }
-
-.public-cards .card-slot {
-  width: 30px;
-  height: 42px;
-}
-.public-cards.split-display .card-slot {
-  width: 28px;
-  height: 40px;
-}
-.public-cards-vpos-1,
-.public-cards-vpos-2,
-.public-cards-vpos-3 { right: 60px; }
-.public-cards-vpos-5,
-.public-cards-vpos-6,
-.public-cards-vpos-7 { left: 60px; }
-.card.small .rank { font-size: 11px; }
-.card.small .center-suit { font-size: 16px; }
-.card.small .suit { font-size: 9px; }
-
-.menu-popover {
-  position: absolute;
-  left: 8px;
-  bottom: calc(44px + env(safe-area-inset-bottom));
-  z-index: 60;
-  min-width: 132px;
-  padding: 6px;
-  border-radius: 8px;
-  background: rgba(5, 20, 26, 0.96);
-  border: 1px solid rgba(216, 244, 255, 0.24);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-}
-.menu-popover-item {
-  width: 100%;
-  min-height: 32px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #e8f7ff;
-  text-align: left;
-  padding: 0 28px 0 8px;
-  font-size: 13px;
-}
-.menu-popover-item:active,
-.menu-popover-item:hover { background: rgba(216, 244, 255, 0.08); }
-.menu-popover-item.danger { color: #ff8f8f; }
-.menu-popover-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.08);
-  color: #e8f7ff;
-  line-height: 20px;
-}
-.bottom-btn {
-  border-radius: 7px;
-  background: linear-gradient(180deg, #1680a0, #0d5d78);
-  border-color: rgba(232,247,255,0.8);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 4px rgba(0,0,0,0.28);
-}
-.bottom-btn .icon {
-  font-size: 16px;
-  font-weight: 800;
-}
-.chat-btn {
-  opacity: 0.72;
-}
-.history-group-label {
-  writing-mode: horizontal-tb;
-  min-width: 12px;
-  color: #f0d77c;
-  font-size: 10px;
-}
-
-
-/* 2026-07 no-action bottom layout: keep own chips above hand. */
-.room-page.new-table:not(.action-open) .my-hand-area {
-  bottom: 16px;
-  z-index: 8;
-}
-.room-page.new-table:not(.action-open) .seat-vpos-4.is-me,
-.room-page.new-table:not(.action-open) .self-seat-slot {
-  bottom: 92px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 9;
-  width: 96px;
-  pointer-events: auto;
-}
-.room-page.new-table:not(.action-open) .self-seat-box {
-  min-width: 82px !important;
-  background: transparent;
-}
-.room-page.new-table:not(.action-open) .self-seat-box .seat-name {
-  max-width: 92px;
-  margin-bottom: 1px;
-  color: #ffea00;
-  font-size: 9px;
-  text-align: center;
-}
-.room-page.new-table:not(.action-open) .self-chip-stack {
-  height: 25px;
-  min-width: 56px;
-}
-.room-page.new-table:not(.action-open) .self-seat-box .seat-bet-chip {
-  position: static;
-  transform: none;
-  margin-top: 2px;
-  justify-content: center;
-}
-.room-page.new-table:not(.action-open) .my-hand {
-  min-width: 132px;
-  min-height: 58px;
+.tea-room .public-cards.split2 .pub-row,
+.tea-room .tea-hud .tea-split-hand .pub-row {
+  display: flex;
+  gap: 3px;
   align-items: flex-end;
 }
-.room-page.new-table:not(.action-open) .my-hand .card-slot {
-  width: 38px;
-  height: 54px;
+.tea-room .public-cards.row4 {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
 }
-@media (max-width: 370px) {
-  .room-page.new-table:not(.action-open) .seat-vpos-4.is-me,
-  .room-page.new-table:not(.action-open) .self-seat-slot {
-    bottom: 86px;
+.tea-room .public-cards.folded-pub {
+  opacity: 0.45;
+  filter: grayscale(0.7);
+}
+.tea-room .public-cards .split-label,
+.tea-room .public-cards.split-display .split-label {
+  display: none !important;
+}
+
+.tea-room .tea-hud .tea-split-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 70px;
+}
+.tea-room .tea-hud .tea-split-hand.tea-split-row {
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 70px;
+}
+.tea-room .tea-hud .tea-split-hand .card-slot {
+  width: 48px;
+  height: 70px;
+}
+.tea-room .tea-hud .split-hand-label,
+.tea-room .tea-hud .split-hand-divider {
+  display: none !important;
+}
+
+/* 窄屏安全区与触控 */
+@media (max-width: 390px) {
+  .tea-room .tea-hud {
+    padding-left: 8px;
+    padding-right: 8px;
   }
-  .room-page.new-table:not(.action-open) .my-hand-area {
-    bottom: 12px;
+  .tea-room .tea-pill {
+    min-width: 44px;
+    padding: 0 10px;
+  }
+  .tea-room .tea-cta {
+    min-width: 96px;
+  }
+  .tea-room .tea-hud .my-hand .card-slot {
+    width: 44px;
+    height: 64px;
   }
 }
 
-/* 2026-07 action-open bottom layout: keep hand/chips clear of controls. */
-.room-page.new-table.action-open .turn-action-panel {
-  bottom: calc(42px + env(safe-area-inset-bottom));
+/* 自己座位只在 HUD 展示，环桌 v4 隐藏 */
+.tea-room .seat-vpos-4.is-me,
+.tea-room .self-seat-slot {
+  display: none !important;
 }
-.room-page.new-table.action-open .my-hand-area {
-  bottom: calc(42px + 148px + 12px + env(safe-area-inset-bottom));
-  z-index: 12;
+
+/* ========== 自检修复：HUD 压缩 / 空座 / 木边可见 ========== */
+.tea-room .tea-hud {
+  padding: 2px 10px calc(8px + var(--safe-b));
+  flex-shrink: 0;
+  max-height: none;
 }
-.room-page.new-table.action-open .seat-vpos-4.is-me,
-.room-page.new-table.action-open .self-seat-slot {
-  bottom: calc(42px + 148px + 74px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 13;
-  width: 96px;
+
+.tea-room .tea-hud .self-row {
+  margin-bottom: 2px;
 }
-@media (max-height: 680px) {
-  .room-page.new-table.action-open .my-hand-area {
-    bottom: calc(42px + 132px + 8px + env(safe-area-inset-bottom));
-  }
-  .room-page.new-table.action-open .seat-vpos-4.is-me,
-  .room-page.new-table.action-open .self-seat-slot {
-    bottom: calc(42px + 132px + 68px + env(safe-area-inset-bottom));
-  }
+
+.tea-room .tea-hud .my-hand-area {
+  margin-bottom: 4px !important;
+  min-height: 70px !important;
+}
+
+.tea-room .tea-hud .my-hand {
+  min-height: 70px !important;
+  gap: 4px;
+}
+
+.tea-room .tea-hud .my-hand .card-slot {
+  width: 48px !important;
+  height: 70px !important;
+}
+
+.tea-room .tea-bar {
+  min-height: 40px;
+  flex-shrink: 0;
+}
+
+/* 空座：强制正圆虚线，去掉旧 sketch 方/齿轮感 */
+.tea-room .empty-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.tea-room .empty-avatar,
+.tea-room .empty-avatar.seat-num-avatar,
+.tea-room .empty-seat .empty-avatar {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  border-radius: 50% !important;
+  background: rgba(22, 16, 12, 0.72) !important;
+  border: 1.5px dashed rgba(224, 192, 106, 0.42) !important;
+  color: rgba(224, 192, 106, 0.85) !important;
+  font-size: 0.68rem !important;
+  font-weight: 800 !important;
+  box-shadow: none !important;
+  filter: none !important;
+  clip-path: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  text-align: center !important;
+}
+
+/* 桌面座位喊价标记 */
+.tea-room .tea-seat-bet {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px 2px 3px;
+  border-radius: 999px;
+  background: rgba(12, 28, 20, 0.78);
+  border: 1px solid rgba(224, 192, 106, 0.45);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tea-room .tea-seat-bet-chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff3c4, #c9a227 60%, #6a4e18);
+  box-shadow: inset 0 0 0 1.5px rgba(90, 60, 10, 0.35);
+  display: block;
+}
+.tea-room .tea-seat-bet-amt {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--gold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-wl {
+  margin-left: 4px;
+  font-size: 0.7em;
+  opacity: 0.65;
+  font-weight: 600;
+}
+.history-delta-label {
+  margin-right: 3px;
+  font-size: 0.7em;
+  opacity: 0.55;
+  font-weight: 600;
+}
+.history-fold-only {
+  font-size: 0.7rem;
+  color: rgba(244, 240, 230, 0.45);
+}
+
+/* 倒计时默认青绿（非 urgent） */
+.tea-room .self-timer:not(.urgent):not(.critical) .label {
+  color: var(--timer) !important;
+}
+.tea-room .self-timer:not(.urgent):not(.critical) .fill {
+  background: linear-gradient(90deg, #1bb89e, var(--timer)) !important;
+  box-shadow: 0 0 8px rgba(46, 230, 200, 0.45) !important;
+}
+.tea-room .self-id.my-turn:not(.urgent):not(.critical) .av-wrap .avatar {
+  border-color: var(--timer) !important;
+  box-shadow: 0 0 8px rgba(46, 230, 200, 0.4) !important;
+}
+
+/* 舞台允许木边阴影溢出到左右 */
+.tea-room.tea-room {
+  overflow: hidden; /* 整页仍裁切，但舞台内可见木边 */
+}
+.tea-room .tea-stage {
+  overflow: visible !important;
 }

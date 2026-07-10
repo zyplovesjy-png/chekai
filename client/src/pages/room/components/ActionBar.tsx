@@ -1,4 +1,6 @@
-﻿interface ActionBarProps {
+﻿import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+
+interface ActionBarProps {
   phase: string;
   isMyTurn: boolean;
   isBetting: boolean;
@@ -10,43 +12,117 @@
   playerRoundCommitted: number;
   canShowSanhua: boolean;
   selectedCount: number;
+  splitConfirmed: boolean;
   canHostStart: boolean;
   canReady: boolean;
   isReady: boolean;
   raiseAmount: string;
   onRaiseAmountChange: (value: string) => void;
-  onMenu: () => void;
   onPlayerAction: (action: string, amount?: number) => void;
-  onAutoSplit: () => void;
   onConfirmSplit: () => void;
   onClearSplitSelection: () => void;
   onStartGame: () => void;
   onReady: () => void;
+  onHintChange?: (hint: string) => void;
 }
 
+type BarMode = 'open' | 'raised' | 'short' | 'split' | 'compare' | 'idle' | 'lobby';
+
 const labels = {
-  menuIcon: '\u2630',
-  menu: '\u83dc\u5355',
-  auto: '\u81ea\u52a8',
-  confirm: '\u786e\u8ba4',
-  reselect: '\u91cd\u9009',
-  remaining: '\u5269\u4f59',
-  see: '\u77a7',
-  fold: '\u7529',
-  raise: '\u8fd4',
-  knock: '\u6572',
-  showSanhua: '\u644a',
-  rest: '\u4f11',
-  call: '\u53eb',
-  raiseScore: '\u8fd4\u5206',
-  callScore: '\u53eb\u5206',
-  startGame: '\u5f00\u59cb\u5bf9\u5c40',
-  ready: '\u51c6\u5907',
-  cancelReady: '\u53d6\u6d88\u51c6\u5907',
-  wait: '\u7b49\u5f85',
-  chat: '\u804a\u5929',
-  chatIcon: '\u2709',
+  confirm: '确认',
+  reselect: '重选',
+  cancel: '取消',
+  see: '瞧',
+  fold: '丢',
+  raise: '返',
+  knock: '敲',
+  showSanhua: '摊',
+  rest: '休',
+  call: '叫',
+  startGame: '开始对局',
+  ready: '准备',
+  cancelReady: '取消准备',
+  wait: '等待中…',
+  waitNext: '等待下一局',
+  dragHint: '上下拖动改金额',
 };
+
+function DragCta({
+  verb,
+  value,
+  min,
+  max,
+  onChange,
+  onSubmit,
+  onDragState,
+}: {
+  verb: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+  onSubmit: (n: number) => void;
+  onDragState?: (state: { dragging: boolean; moved: boolean; value: number }) => void;
+}) {
+  const draggingRef = useRef(false);
+  const movedRef = useRef(false);
+  const startYRef = useRef(0);
+  const startValRef = useRef(0);
+  const valueRef = useRef(value);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    draggingRef.current = true;
+    movedRef.current = false;
+    startYRef.current = e.clientY;
+    startValRef.current = valueRef.current;
+    setDragging(true);
+    onDragState?.({ dragging: true, moved: false, value: valueRef.current });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!draggingRef.current) return;
+    const dy = startYRef.current - e.clientY;
+    if (Math.abs(dy) > 4) movedRef.current = true;
+    const next = clamp(startValRef.current + Math.round(dy / 2));
+    valueRef.current = next;
+    onChange(next);
+  };
+
+  const onPointerUp = () => {
+    if (!draggingRef.current) return;
+    const didMove = movedRef.current;
+    const finalVal = valueRef.current;
+    draggingRef.current = false;
+    setDragging(false);
+    onDragState?.({ dragging: false, moved: didMove, value: finalVal });
+    if (!didMove) onSubmit(finalVal);
+  };
+
+  return (
+    <button
+      className={`tea-cta${dragging ? ' dragging' : ''}`}
+      type="button"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      style={{ touchAction: 'none' }}
+    >
+      <span className="cta-verb">{verb}</span>
+      <em className="cta-value">{value}</em>
+      <span className="drag-hint">{labels.dragHint}</span>
+    </button>
+  );
+}
 
 export function ActionBar({
   phase,
@@ -60,124 +136,231 @@ export function ActionBar({
   playerRoundCommitted,
   canShowSanhua,
   selectedCount,
+  splitConfirmed,
   canHostStart,
   canReady,
   isReady,
   raiseAmount,
   onRaiseAmountChange,
-  onMenu,
   onPlayerAction,
-  onAutoSplit,
   onConfirmSplit,
   onClearSplitSelection,
   onStartGame,
   onReady,
+  onHintChange,
 }: ActionBarProps) {
-  const sliderMin = betStarted ? Math.max(1, currentBet) : Math.max(1, minBet);
-  const sliderMax = Math.max(sliderMin, (playerChips || 0) + (playerRoundCommitted || 0), maxBet && maxBet < Number.MAX_SAFE_INTEGER ? maxBet : 0);
+  const totalStack = (playerChips || 0) + (playerRoundCommitted || 0);
+  const sliderMin = betStarted ? Math.max(1, currentBet + 1) : Math.max(1, minBet);
+  const sliderMax = Math.max(
+    sliderMin,
+    totalStack,
+    maxBet && maxBet < Number.MAX_SAFE_INTEGER ? maxBet : 0,
+  );
+  const effectiveMax = Math.max(sliderMin, totalStack);
   const parsedAmount = Number(raiseAmount || sliderMin);
-  const sliderValue = Math.min(sliderMax, Math.max(sliderMin, Number.isFinite(parsedAmount) ? parsedAmount : sliderMin));
-  const showTurnPanel = phase === 'selecting' || (isMyTurn && isBetting);
+  const displayValue = Math.min(
+    effectiveMax,
+    Math.max(sliderMin, Number.isFinite(parsedAmount) ? parsedAmount : sliderMin),
+  );
+
+  const cannotAffordSee = betStarted
+    ? (currentBet > 0 && totalStack < currentBet)
+    : (totalStack < Math.max(1, minBet) && totalStack > 0);
+  const broke = totalStack <= 0;
+  const shortStack = isMyTurn && isBetting && (cannotAffordSee || broke);
+
+  const [localSplitDone, setLocalSplitDone] = useState(false);
+  const splitDone = splitConfirmed || localSplitDone;
+
+  useEffect(() => {
+    if (phase !== 'selecting') setLocalSplitDone(false);
+  }, [phase]);
+
+  useEffect(() => {
+    if (splitConfirmed) setLocalSplitDone(true);
+  }, [splitConfirmed]);
+
+  // 每次进入可操作下注态，重置为当前最低可下注额（不记忆上次拖动值）
+  useEffect(() => {
+    if (!(isMyTurn && isBetting) || shortStack) return;
+    onRaiseAmountChange(String(sliderMin));
+  }, [isMyTurn, isBetting, betStarted, currentBet, minBet, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 保持金额在合法范围内
+  useEffect(() => {
+    if (!(isMyTurn && isBetting)) return;
+    if (displayValue !== parsedAmount || !Number.isFinite(parsedAmount)) {
+      onRaiseAmountChange(String(displayValue));
+    }
+  }, [sliderMin, effectiveMax]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setAmount = (value: number) => {
-    const clamped = Math.min(sliderMax, Math.max(sliderMin, Math.round(value)));
-    onRaiseAmountChange(String(clamped));
+    onRaiseAmountChange(String(Math.min(effectiveMax, Math.max(sliderMin, Math.round(value)))));
   };
 
-  const wagerControl = (label: string) => (
-    <div className="wager-panel turn-wager-panel">
-      <div className="wager-head">
-        <span>{label}</span>
-        <strong>{sliderMax}</strong>
-      </div>
-      <input
-        className="wager-slider"
-        type="range"
-        min={sliderMin}
-        max={sliderMax}
-        step={1}
-        value={sliderValue}
-        onChange={(event) => setAmount(Number(event.target.value))}
-        aria-label={label}
-      />
-      <div className="wager-range">
-        <span>{sliderValue}</span>
-        <span>{labels.remaining} {playerChips || 0}</span>
-      </div>
-    </div>
-  );
-
-  const renderTurnPanel = () => {
+  const resolveMode = (): BarMode => {
+    if (phase === 'dealing') return 'idle';
+    // 配牌选择栏：仅在配牌阶段、且尚未确认时显示
     if (phase === 'selecting') {
-      return (
-        <div className="turn-action-panel split-turn-panel">
-          <div className="split-action-layout">
-            <button className="btn action-orb" onClick={onAutoSplit}>{labels.auto}</button>
-            <button className="btn btn-primary action-orb" disabled={selectedCount !== 2} onClick={onConfirmSplit}>{labels.confirm}</button>
-            <button className="btn action-orb" onClick={onClearSplitSelection}>{labels.reselect}</button>
-          </div>
-        </div>
-      );
+      return splitDone ? 'idle' : 'split';
     }
-
-    if (!isMyTurn || !isBetting) return null;
-
-    return (
-      <div className="turn-action-panel bet-turn-panel">
-        {betStarted ? (
-          <>
-            <div className="turn-action-group turn-action-left">
-              <button className="btn action-orb" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
-              <button className="btn action-orb" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
-              {canShowSanhua && <button className="btn action-orb" onClick={() => onPlayerAction('show_sanhua')}>{labels.showSanhua}</button>}
-            </div>
-            {wagerControl(labels.raiseScore)}
-            <div className="turn-action-group turn-action-right">
-              <button className="btn action-orb" onClick={() => onPlayerAction('raise', sliderValue)}>{labels.raise}</button>
-              <button className="btn action-orb" onClick={() => onPlayerAction('see')}>{labels.see}</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="turn-action-group turn-action-left single-action">
-              <button className="btn action-orb" onClick={() => onPlayerAction('rest')}>{labels.rest}</button>
-              <button className="btn action-orb" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
-            </div>
-            {wagerControl(labels.callScore)}
-            <div className="turn-action-group turn-action-right single-action">
-              <button className="btn action-orb" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
-              <button className="btn action-orb" onClick={() => onPlayerAction('call', sliderValue)}>{labels.call}</button>
-              {canShowSanhua && <button className="btn action-orb" onClick={() => onPlayerAction('show_sanhua')}>{labels.showSanhua}</button>}
-            </div>
-          </>
-        )}
-      </div>
-    );
+    if (phase === 'comparing') return 'compare';
+    if (phase === 'done') return 'compare';
+    if (isMyTurn && isBetting) {
+      if (shortStack) return 'short';
+      return betStarted ? 'raised' : 'open';
+    }
+    if (canHostStart || canReady) return 'lobby';
+    return 'idle';
   };
 
-  const renderFooterCenter = () => {
-    if (showTurnPanel) return <div className="action-idle" />;
-    if (canHostStart) return <button className="btn btn-primary start-game-btn" onClick={onStartGame}>{labels.startGame}</button>;
-    if (canReady) return <button className="btn btn-primary start-game-btn" onClick={onReady}>{isReady ? labels.cancelReady : labels.ready}</button>;
-    return <div className="action-idle">{labels.wait}</div>;
+  const mode = resolveMode();
+
+  useEffect(() => {
+    if (!onHintChange) return;
+    // 叫/返提示已写在按钮上，消息区不再重复
+    if (mode === 'short') {
+      onHintChange(broke ? '筹码不足，只能丢' : '筹码不足，只能敲或丢');
+    } else if (mode === 'split') {
+      onHintChange(
+        selectedCount === 2
+          ? '已选两张，点确认（系统自动分头尾）'
+          : '点选两张牌配对',
+      );
+    } else if (phase === 'selecting' && splitDone) {
+      onHintChange('已确认配牌，等待其他玩家');
+    } else if (mode === 'compare' && phase === 'comparing') {
+      onHintChange('比牌中…');
+    } else {
+      onHintChange('');
+    }
+  }, [mode, selectedCount, splitDone, broke, onHintChange, phase]);
+
+  const sanhuaBtn = canShowSanhua && (mode === 'open' || mode === 'raised' || mode === 'short') ? (
+    <button className="tea-pill" type="button" onClick={() => onPlayerAction('show_sanhua')}>
+      {labels.showSanhua}
+    </button>
+  ) : null;
+
+  const renderBar = () => {
+    switch (mode) {
+      case 'open':
+        return (
+          <div className="tea-bar open show">
+            <div className="side">
+              <button className="tea-pill" type="button" onClick={() => onPlayerAction('rest')}>{labels.rest}</button>
+              <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
+            </div>
+            <DragCta
+              verb={labels.call}
+              value={displayValue}
+              min={sliderMin}
+              max={effectiveMax}
+              onChange={setAmount}
+              onSubmit={(n) => onPlayerAction('call', n)}
+            />
+            <button className="tea-pill" type="button" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
+            {sanhuaBtn}
+          </div>
+        );
+
+      case 'raised':
+        return (
+          <div className="tea-bar raised show">
+            <div className="side">
+              <button className="tea-pill" type="button" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
+              <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
+            </div>
+            {totalStack > currentBet ? (
+              <DragCta
+                verb={labels.raise}
+                value={displayValue}
+                min={sliderMin}
+                max={effectiveMax}
+                onChange={setAmount}
+                onSubmit={(n) => onPlayerAction('raise', n)}
+              />
+            ) : (
+              <button className="tea-cta" type="button" disabled>
+                {labels.raise} <em>—</em>
+              </button>
+            )}
+            <button className="tea-pill" type="button" onClick={() => onPlayerAction('see')}>{labels.see}</button>
+            {sanhuaBtn}
+          </div>
+        );
+
+      case 'short':
+        return (
+          <div className="tea-bar short show">
+            {!broke && (
+              <button className="tea-pill" type="button" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
+            )}
+            <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
+            {sanhuaBtn}
+          </div>
+        );
+
+      case 'split':
+        return (
+          <div className="tea-bar split show">
+            <button
+              className="tea-pill"
+              type="button"
+              onClick={() => {
+                onClearSplitSelection();
+              }}
+            >
+              {labels.reselect}
+            </button>
+            <button
+              className="tea-cta"
+              type="button"
+              disabled={selectedCount !== 2}
+              onClick={() => {
+                if (selectedCount !== 2) return;
+                setLocalSplitDone(true);
+                onConfirmSplit();
+              }}
+            >
+              {labels.confirm}
+            </button>
+          </div>
+        );
+
+      case 'compare':
+        return (
+          <div className="tea-bar compare show">
+            <button className="tea-cta" type="button" disabled>
+              {phase === 'comparing' ? '比牌中…' : labels.waitNext}
+            </button>
+          </div>
+        );
+
+      case 'lobby':
+        if (canHostStart) {
+          return (
+            <div className="tea-bar lobby show">
+              <button className="tea-cta" type="button" onClick={onStartGame}>{labels.startGame}</button>
+            </div>
+          );
+        }
+        return (
+          <div className="tea-bar lobby show">
+            <button className="tea-cta" type="button" onClick={onReady}>
+              {isReady ? labels.cancelReady : labels.ready}
+            </button>
+          </div>
+        );
+
+      default:
+        return (
+          <div className="tea-bar idle show">
+            <span className="tea-idle">{labels.wait}</span>
+          </div>
+        );
+    }
   };
 
-  return (
-    <>
-      {renderTurnPanel()}
-      <footer className="bottom-bar">
-        <button className="bottom-btn menu-btn" onClick={onMenu} aria-label={labels.menu}>
-          <span className="icon">{labels.menuIcon}</span>
-        </button>
-
-        <div className="action-buttons">
-          {renderFooterCenter()}
-        </div>
-
-        <button className="bottom-btn chat-btn" type="button" aria-label={labels.chat}>
-          <span className="icon">{labels.chatIcon}</span>
-        </button>
-      </footer>
-    </>
-  );
+  return <div className="tea-action-root">{renderBar()}</div>;
 }

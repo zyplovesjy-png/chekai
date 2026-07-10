@@ -1,57 +1,80 @@
-﻿/* Shared playing cards */
+﻿/* Shared playing cards — SVG-cards PNG art (htdebeer/SVG-cards, LGPL)
+ * PNG 自带牌框，外层不再加 border，避免双边框。 */
 .card {
-  width: 100%; height: 100%;
-  aspect-ratio: 44 / 62;
-  border-radius: 7px;
-  border: 1px solid rgba(20, 20, 20, 0.18);
-  background: linear-gradient(180deg, #fffaf0 0%, #efe6d1 100%);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 3px 4px;
-  font-weight: 600;
+  width: 100%;
+  height: 100%;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  display: block;
   position: relative;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  overflow: visible;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.32);
   cursor: default;
+  padding: 0;
 }
-.card.small { border-radius: 5px; padding: 2px 3px; }
-.card.red { color: var(--red); }
-.card.black { color: var(--black); }
-.card.joker { background: linear-gradient(135deg, #fff8e1, #ffe082); color: #b71c1c; }
-.card.back {
-  background:
-    radial-gradient(circle at 50% 50%, rgba(212,175,55,0.25), transparent 38%),
-    repeating-linear-gradient(45deg, #642818, #642818 4px, #873b23 4px, #873b23 8px);
-  border: 1px solid var(--gold);
+.card.small {
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
-.card.back::after {
-  content: "\724c";
+
+.card .card-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  border-radius: inherit;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.card.selected {
+  /* 仅配牌可选时由 .my-hand.selectable 启用，避免状态残留误显示黄框 */
+  transform: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.32);
+  border-color: transparent;
+}
+
+.my-hand.selectable .card.selected {
+  transform: translateY(-8px);
+  box-shadow:
+    0 0 0 2px var(--gold, #d4af37),
+    0 6px 16px rgba(212, 175, 55, 0.45);
+  border-color: var(--gold, #d4af37);
+}
+
+.card.head-mark::before,
+.card.tail-mark::before {
   position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  color: var(--gold); font-size: 12px; font-weight: 700;
+  top: -7px;
+  right: -3px;
+  z-index: 2;
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 5px;
+  font-weight: 700;
+  line-height: 1.2;
 }
-.card .rank { font-size: 13px; line-height: 1; font-weight: 700; }
-.card .suit { font-size: 11px; line-height: 1; align-self: flex-end; }
-.card .center-suit {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 20px; opacity: 0.75; line-height: 1;
-}
-.card.small .rank { font-size: 9px; }
-.card.small .suit { font-size: 8px; }
-.card.small .center-suit { font-size: 14px; }
-.card.small.back::after { font-size: 9px; }
-.card.selected { transform: translateY(-8px); box-shadow: 0 6px 16px rgba(212, 175, 55, 0.5); border: 2px solid var(--gold); }
 .card.head-mark::before {
-  content: "\5934"; position: absolute; top: -7px; right: -3px;
-  background: var(--gold); color: #000; font-size: 8px;
-  padding: 1px 4px; border-radius: 5px; font-weight: 700;
+  content: "\5934";
+  background: var(--gold, #d4af37);
+  color: #000;
 }
 .card.tail-mark::before {
-  content: "\5c3e"; position: absolute; top: -7px; right: -3px;
-  background: #888; color: #fff; font-size: 8px;
-  padding: 1px 4px; border-radius: 5px; font-weight: 700;
+  content: "\5c3e";
+  background: #888;
+  color: #fff;
 }
+
 .my-hand.selectable .card { cursor: pointer; }
 .my-hand.selectable .card:hover { transform: translateY(-4px); }
+
+/* Legacy text-card rules kept harmless if any non-img cards remain */
+.card.red { color: var(--red); }
+.card.black { color: var(--black); }
+.card.joker { color: #b71c1c; }
+.card .rank,
+.card .suit,
+.card .center-suit { display: none; }

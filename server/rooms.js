@@ -1,15 +1,13 @@
 /* ========== 房间系统：创建/加入/座位管理/游戏状态 ========== */
+const { attachLogger, getLogger } = require('./game-logger');
 
 // 内存存储所有房间
 const roomsByCode = new Map();
 
-const SEAT_IDS = ['top-0','top-1','right-0','right-1','bottom-0','bottom-1','left-0','left-1'];
+// 座位固化编号（逆时针，底=1）：底→右→上→左；下标 0..7 = 座位号 1..8；下标+1 = 逆时针下一家
+const SEAT_IDS = ['bottom-0','right-1','right-0','top-1','top-0','left-1','left-0','bottom-1'];
 
-const GAME_TYPES = {
-  '1,3':  { name:'1、3',  firstPot:100 },
-  '5,10': { name:'5、10', firstPot:500 },
-  '5,20': { name:'5、20', firstPot:1000 },
-};
+const DEFAULT_BUY_IN = 100;
 
 // 生成6位数字房间号
 function genRoomCode() {
@@ -28,10 +26,9 @@ function createRoom(host, options = {}) {
     host: host.username,
     creator: host.username,
     roundLimit: options.roundLimit || 8,
-    minBuyIn: options.minBuyIn || 100,
+    minBuyIn: options.minBuyIn || DEFAULT_BUY_IN,
     members: [{ username: host.username, nickname: host.nickname, ready: false, avatar_path: host.avatar_path || null }],
     seats: Array(8).fill(null),
-    gameType: '1,3',
     gameStarted: false,
     gameFinished: false,
     gameRound: 0,
@@ -39,6 +36,7 @@ function createRoom(host, options = {}) {
     ws: new Set(),
     disconnected: {},
   };
+  attachLogger(room);
   roomsByCode.set(code, room);
   return room;
 }
@@ -54,6 +52,7 @@ function joinRoom(code, user) {
   }
   room.members.push({ username: user.username, nickname: user.nickname, ready: false, avatar_path: user.avatar_path || null });
   delete room.disconnected[user.username];
+  getLogger(room)?.logMember('join', user);
   return { ok: true, room };
 }
 
@@ -86,7 +85,6 @@ function getRoomInfo(code, user) {
     roundLimit: room.roundLimit, minBuyIn: room.minBuyIn,
     members: room.members.map(m => ({ username: m.username, nickname: m.nickname, ready: m.ready })),
     seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
-    gameType: room.gameType,
     gameStarted: room.gameStarted,
     gameRound: room.gameRound,
     createdAt: room.createdAt,
@@ -107,7 +105,7 @@ function sitDown(code, username, nickname, seatId, buyIn) {
   const existingSeat = isSeatChange ? { ...room.seats[existingSeatIdx] } : null;
   const midGame = !!room.gameStarted && !!room.game;
   const member = room.members.find(m => m.username === username);
-  const config = GAME_TYPES[room.gameType];
+  const defaultBuyIn = room.minBuyIn || DEFAULT_BUY_IN;
 
   if (midGame) {
     const engine = room.game;
@@ -133,11 +131,14 @@ function sitDown(code, username, nickname, seatId, buyIn) {
         avatar_path: member?.avatar_path || existingSeat.avatar_path || null,
       };
       if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
+      getLogger(room)?.logSeat('change', {
+        username, nickname, seatId, seatNo: targetIdx + 1, buyIn: room.seats[targetIdx].buyIn,
+      });
       return { ok: true, seats: room.seats };
     }
 
     // 新入座：对局中坐下则本局观战，下局加入
-    const finalBuyIn = buyIn || config.firstPot;
+    const finalBuyIn = buyIn || defaultBuyIn;
     if (finalBuyIn < (room.minBuyIn || 0)) {
       return { ok: false, msg: `至少需要带入 ${room.minBuyIn} 分` };
     }
@@ -153,14 +154,18 @@ function sitDown(code, username, nickname, seatId, buyIn) {
     if (!room.initialBuyIns.find(i => i.username === username)) {
       room.initialBuyIns.push({ username, nickname, buyIn: finalBuyIn });
     }
-    if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
+    getLogger(room)?.logSeat('sit', {
+      username, nickname, seatId, seatNo: targetIdx + 1, buyIn: finalBuyIn,
+      spectating: inHand,
+    });
+    // 对局进行中入座：只占座观战，下局开始才纳入 players
     return { ok: true, seats: room.seats, spectating: inHand };
   }
 
   if (room.gameStarted) return { ok: false, msg: '游戏进行中，请等待下一局' };
 
   if (isSeatChange) room.seats[existingSeatIdx] = null;
-  const finalBuyIn = buyIn || existingSeat?.buyIn || config.firstPot;
+  const finalBuyIn = buyIn || existingSeat?.buyIn || defaultBuyIn;
   if (finalBuyIn < (room.minBuyIn || 0)) {
     return { ok: false, msg: `至少需要带入 ${room.minBuyIn} 分` };
   }
@@ -171,6 +176,9 @@ function sitDown(code, username, nickname, seatId, buyIn) {
     ready: false,
     avatar_path: member?.avatar_path || null,
   };
+  getLogger(room)?.logSeat(isSeatChange ? 'change' : 'sit', {
+    username, nickname, seatId, seatNo: targetIdx + 1, buyIn: finalBuyIn,
+  });
   return { ok: true, seats: room.seats };
 }
 
@@ -242,22 +250,20 @@ function standUp(code, username) {
     };
     room.seats[idx] = null;
     if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
+    getLogger(room)?.logSeat('stand', {
+      username, nickname: room.chipArchives[username]?.nickname, seatId: SEAT_IDS[idx], seatNo: idx + 1,
+      finalPot: room.chipArchives[username]?.finalPot,
+    });
     return { ok: true, seats: room.seats };
   }
 
   if (room.gameStarted) return { ok: false, msg: '游戏进行中，不能起身' };
+  const stood = room.seats[idx];
   room.seats[idx] = null;
+  getLogger(room)?.logSeat('stand', {
+    username, nickname: stood?.nickname, seatId: SEAT_IDS[idx], seatNo: idx + 1, buyIn: stood?.buyIn,
+  });
   return { ok: true, seats: room.seats };
-}
-
-function setGameType(code, username, gameType) {
-  const room = roomsByCode.get(code);
-  if (!room) return { ok: false, msg: '房间不存在' };
-  if (room.host !== username) return { ok: false, msg: '只有房主可以设置' };
-  if (!GAME_TYPES[gameType]) return { ok: false, msg: '无效的游戏类型' };
-  if (room.gameStarted) return { ok: false, msg: '游戏进行中，不能修改' };
-  room.gameType = gameType;
-  return { ok: true, gameType };
 }
 
 function finishRound(code) {
@@ -275,13 +281,20 @@ function finishRound(code) {
 function leaveRoom(code, username) {
   const room = roomsByCode.get(code);
   if (!room) return null;
+  const member = room.members.find(m => m.username === username);
+  getLogger(room)?.logMember('leave', { username, nickname: member?.nickname || username });
   room.members = room.members.filter(m => m.username !== username);
   const seatIdx = room.seats.findIndex(s => s && s.username === username);
   if (seatIdx >= 0) room.seats[seatIdx] = null;
   if (room.host === username && room.members.length > 0) {
     room.host = room.members[0].username;
   }
-  if (room.members.length === 0) { roomsByCode.delete(code); return null; }
+  if (room.members.length === 0) {
+    getLogger(room)?.close();
+    room.logger = null;
+    roomsByCode.delete(code);
+    return null;
+  }
   return room;
 }
 
@@ -292,6 +305,7 @@ function markDisconnected(code, username) {
   const room = roomsByCode.get(code);
   if (!room) return;
   room.disconnected[username] = Date.now();
+  getLogger(room)?.logDisconnect('mark', username);
   broadcastRoom(room);
 }
 
@@ -311,35 +325,73 @@ function checkDisconnectTimeouts() {
   for (const room of roomsByCode.values()) {
     if (!room.game || !room.game.state) continue;
     const s = room.game.state;
-    if (s.phase === 'idle' || s.phase === 'done' || s.phase === 'gameover') continue;
 
     for (const [username, disconnectedAt] of Object.entries(room.disconnected)) {
-      if (now - disconnectedAt > DISCONNECT_TIMEOUT) {
-        const engine = room.game;
-        const p = engine.getPlayer(username);
-        if (p && !p.folded && s.activeIds.includes(username)) {
-          const result = engine.doFold(p);
-          if (result) {
-            const msg = JSON.stringify({ type: 'game_action', action: result });
-            for (const ws of room.ws) { if (ws.readyState === 1) ws.send(msg); }
-            if (s.toAct.length > 0 && s.toAct[0] === username) s.toAct.shift();
-            engine.advanceToAct();
-            const done = engine.checkBettingDone();
-            if (done.done) {
-              if (s.betRound === 1) {
-                setTimeout(() => { engine.dealThirdCard(); broadcastRoundStateLocal(room); }, 600);
-              } else if (s.betRound === 2) {
-                setTimeout(() => { engine.dealFourthCard(); broadcastRoundStateLocal(room); }, 600);
-              } else {
-                s.phase = 'selecting';
-                broadcastRoundStateLocal(room);
-              }
-            } else {
-              broadcastRoundStateLocal(room);
-            }
-          }
+      if (now - disconnectedAt <= DISCONNECT_TIMEOUT) continue;
+      const engine = room.game;
+      const p = engine.getPlayer(username);
+
+      // 对局中：先自动弃牌
+      if (p && !p.folded && s.activeIds.includes(username) &&
+          !['idle', 'done', 'gameover'].includes(s.phase)) {
+        const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
+        const result = engine.doFold(p);
+        if (result) {
+          getLogger(room)?.logAction(engine, result, { timeout: true, before });
+          const msg = JSON.stringify({ type: 'game_action', action: { ...result, timeout: true } });
+          for (const ws of room.ws) { if (ws.readyState === 1) ws.send(msg); }
+          if (s.toAct.length > 0 && s.toAct[0] === username) s.toAct.shift();
+          engine.advanceToAct();
         }
-        delete room.disconnected[username];
+      }
+
+      // 归档筹码并清空座位，避免幽灵座位继续发牌
+      if (p) {
+        if (!room.chipArchives) room.chipArchives = {};
+        room.chipArchives[username] = {
+          username,
+          nickname: p.nickname,
+          initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || 0,
+          totalBuyIn: p.totalBuyIn || 0,
+          finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
+          leftAt: Date.now(),
+        };
+      }
+      const seatIdx = room.seats.findIndex(seat => seat && seat.username === username);
+      if (seatIdx >= 0) room.seats[seatIdx] = null;
+      if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
+      getLogger(room)?.logDisconnect('timeout_remove', username, {
+        finalPot: room.chipArchives?.[username]?.finalPot,
+      });
+
+      delete room.disconnected[username];
+      broadcastRoom(room);
+
+      const done = engine.checkBettingDone();
+      if (done.done && !['idle', 'done', 'gameover'].includes(s.phase)) {
+        // 交给 server 侧统一处理（此处仅广播状态；server 的 interval 不直接调 handleBettingDone）
+        if (s.betRound === 1) {
+          setTimeout(() => { engine.dealThirdCard(); broadcastRoundStateLocal(room); }, 600);
+        } else if (s.betRound === 2) {
+          setTimeout(() => { engine.dealFourthCard(); broadcastRoundStateLocal(room); }, 600);
+        } else if (done.reason === 'all_folded' || done.reason === 'rest_cross') {
+          s.phase = 'done';
+          broadcastRoundStateLocal(room);
+        } else {
+          s.phase = 'selecting';
+          broadcastRoundStateLocal(room);
+        }
+      } else {
+        broadcastRoundStateLocal(room);
+      }
+
+      // 在座不足 2 人：局间立即结束；对局中等本局结束后由 startNextRoundAuto 收尾
+      const seated = room.seats.filter(seat => seat !== null).length;
+      if (seated < 2) {
+        room.pendingEndReason = 'players';
+        if (['done', 'idle', 'gameover'].includes(s.phase) || seated === 0) {
+          room.forceEndGame = true;
+        }
       }
     }
   }
@@ -371,7 +423,6 @@ function broadcastRoom(room) {
         disconnected: !!room.disconnected[m.username],
       })),
       seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
-      gameType: room.gameType,
       gameStarted: room.gameStarted,
       gameRound: room.gameRound,
     }
@@ -380,14 +431,13 @@ function broadcastRoom(room) {
 }
 
 function getSeatIds() { return SEAT_IDS; }
-function getGameTypes() { return GAME_TYPES; }
 
 module.exports = {
-  roomsByCode, SEAT_IDS, GAME_TYPES,
+  roomsByCode, SEAT_IDS, DEFAULT_BUY_IN,
   createRoom, joinRoom, getRoomInfo, getRoomByCode, getRoomsByCreator,
   setReady: () => {}, // deprecated, use setSeatReady
-  sitDown, standUp, setGameType, setSeatReady, startGame,
+  sitDown, standUp, setSeatReady, startGame,
   leaveRoom, broadcastRoom, finishRound,
   markDisconnected, handleReconnect,
-  getSeatIds, getGameTypes,
+  getSeatIds,
 };

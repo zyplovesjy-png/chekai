@@ -25,7 +25,6 @@ export interface RoomActionHandlers {
   onStartGame: () => void;
   onLeaveRoom: () => void;
   onDisbandRoom: () => void;
-  onGameTypeChange: (gameType: string) => void;
   onPlayerAction: (action: string, amount?: number) => void;
   onAutoSplit: () => void;
   onConfirmSplit: () => void;

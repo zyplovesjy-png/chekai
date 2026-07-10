@@ -7,55 +7,62 @@ interface MyHandProps {
   selected: number[];
   phase: string;
   onCardClick: (idx: number) => void;
+  /** 是否为真正比牌（有配牌）；弃牌结束等不应按头尾展示 */
+  realCompare?: boolean;
 }
 
-const headLabel = '\u5934';
-const tailLabel = '\u5c3e';
-
-export function MyHand({ myHand, mySplit, selected, phase, onCardClick }: MyHandProps) {
+export function MyHand({
+  myHand,
+  mySplit,
+  selected,
+  phase,
+  onCardClick,
+  realCompare = false,
+}: MyHandProps) {
   if (myHand.length === 0) return null;
 
-  if (mySplit?.headIdx) {
-    const headCards = mySplit.headIdx.map(i => myHand[i]);
-    const tailIdx = myHand.map((_, i) => i).filter(i => !mySplit.headIdx.includes(i));
-    const tailCards = tailIdx.map(i => myHand[i]);
+  // 仅配牌阶段（已确认）或真正比牌：左头右尾
+  const showSplitLayout = !!mySplit?.headIdx && (
+    phase === 'selecting'
+    || phase === 'comparing'
+    || (phase === 'done' && realCompare)
+  );
+
+  if (showSplitLayout && mySplit) {
+    const headCards = mySplit.headIdx.map((i) => myHand[i]).filter(Boolean);
+    const tailIdx = myHand.map((_, i) => i).filter((i) => !mySplit.headIdx.includes(i));
+    const tailCards = tailIdx.map((i) => myHand[i]).filter(Boolean);
     return (
       <div className="my-hand-area">
-        <div className="my-hand split-confirmed">
-          <div className="split-hand-group">
-            <span className="split-hand-label">{headLabel}</span>
-            <div className="split-hand-cards">
-              {headCards.map((card, i) => (
-                <div className="card-slot" key={`h${i}`}>
-                  <CardView card={card} mark="head" />
-                </div>
-              ))}
+        <div className="my-hand split-confirmed tea-split-hand tea-split-row">
+          {headCards.map((card, i) => (
+            <div className="card-slot" key={`h${i}`}>
+              <CardView card={card} mark="head" />
             </div>
-          </div>
-          <div className="split-hand-divider" />
-          <div className="split-hand-group">
-            <span className="split-hand-label">{tailLabel}</span>
-            <div className="split-hand-cards">
-              {tailCards.map((card, i) => (
-                <div className="card-slot" key={`t${i}`}>
-                  <CardView card={card} mark="tail" />
-                </div>
-              ))}
+          ))}
+          {tailCards.map((card, i) => (
+            <div className="card-slot" key={`t${i}`}>
+              <CardView card={card} mark="tail" />
             </div>
-          </div>
+          ))}
         </div>
       </div>
     );
   }
 
+  // 选牌中：保持发牌顺序，仅高亮选中；非配牌阶段不可点选、不显示黄框
   return (
     <div className="my-hand-area">
       <div className={`my-hand${phase === 'selecting' ? ' selectable' : ''}`}>
         {myHand.map((card, idx) => {
-          const isSelected = selected.includes(idx);
+          const isSelected = phase === 'selecting' && selected.includes(idx);
           return (
-            <div className="card-slot" key={idx}>
-              <CardView card={card} selected={isSelected} onClick={() => onCardClick(idx)} />
+            <div className="card-slot" key={card.id || idx}>
+              <CardView
+                card={card}
+                selected={isSelected}
+                onClick={phase === 'selecting' ? () => onCardClick(idx) : undefined}
+              />
             </div>
           );
         })}
