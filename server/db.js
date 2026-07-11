@@ -142,14 +142,14 @@ function decodeCards(str) {
 // ========== 预设账号 ==========
 const PRESET_USERS = [
   { username: 'admin', nickname: '管理员', password: 'admin123', role: 'admin' },
-  { username: 'user1', nickname: '玩家1', password: '123456', role: 'player' },
-  { username: 'user2', nickname: '玩家2', password: '123456', role: 'player' },
-  { username: 'user3', nickname: '玩家3', password: '123456', role: 'player' },
-  { username: 'user4', nickname: '玩家4', password: '123456', role: 'player' },
-  { username: 'user5', nickname: '玩家5', password: '123456', role: 'player' },
-  { username: 'user6', nickname: '玩家6', password: '123456', role: 'player' },
-  { username: 'user7', nickname: '玩家7', password: '123456', role: 'player' },
-  { username: 'user8', nickname: '玩家8', password: '123456', role: 'player' },
+  { username: 'zhr', nickname: '小然二', password: '123456', role: 'player' },
+  { username: 'wrz', nickname: '抖师傅', password: '123456', role: 'player' },
+  { username: 'my', nickname: '毛老师', password: '123456', role: 'player' },
+  { username: 'zml', nickname: '板师', password: '123456', role: 'player' },
+  { username: 'zyp', nickname: '周哥', password: '123456', role: 'player' },
+  { username: 'mxc', nickname: '毛兴池', password: '123456', role: 'player' },
+  { username: 'syf', nickname: '宋老么', password: '123456', role: 'player' },
+  { username: 'lql', nickname: '678', password: '123456', role: 'player' },
 ];
 
 const insertUser = db.prepare(
@@ -695,6 +695,33 @@ function getSessionDetail(sessionId) {
   };
 }
 
+/** 本场已结束各手，供房间对局记录抽屉恢复（仅 card id） */
+function listSessionHandsForHistory(sessionId) {
+  if (!sessionId) return [];
+  const hands = db.prepare(
+    'SELECT id, hand_no, end_reason, banker_username FROM hand_records WHERE session_id = ? ORDER BY hand_no ASC'
+  ).all(sessionId);
+  const loadPlayers = db.prepare(
+    `SELECT username, nickname, cards, cards_head, cards_tail, delta, folded, rested
+     FROM hand_players WHERE hand_id = ?`
+  );
+  return hands.map((h) => ({
+    handNo: h.hand_no,
+    endReason: h.end_reason || null,
+    bankerUsername: h.banker_username || '',
+    players: loadPlayers.all(h.id).map((p) => ({
+      username: p.username,
+      nickname: p.nickname,
+      cardIds: decodeCards(p.cards),
+      headIds: decodeCards(p.cards_head),
+      tailIds: decodeCards(p.cards_tail),
+      delta: p.delta || 0,
+      folded: !!p.folded,
+      rested: !!p.rested || (h.end_reason === 'rest_cross' && !p.folded),
+    })),
+  }));
+}
+
 // ========== 统计 / 排行榜 ==========
 function getPlayerStats(username) {
   return db.prepare('SELECT * FROM player_stats WHERE username = ?').get(username);
@@ -721,6 +748,73 @@ function getLeaderboard(type = 'profit') {
     order = 'ORDER BY winrate DESC, total_hands DESC, wins DESC';
   }
   return db.prepare(`${base} ${order}`).all();
+}
+
+/** 清空胜率相关累计（胜/负/平/手数），保留净输赢 */
+function resetWinrateStats() {
+  db.prepare(`
+    UPDATE player_stats
+    SET total_hands = 0, wins = 0, losses = 0, ties = 0,
+        updated_at = unixepoch()
+  `).run();
+  try {
+    db.prepare(`
+      UPDATE user_stats
+      SET total_games = 0, wins = 0, losses = 0,
+          best_streak = 0, current_streak = 0
+    `).run();
+  } catch { /* 旧表可能不存在 */ }
+  return { ok: true };
+}
+
+/** 清空所有玩家净输赢，不影响胜率样本 */
+function resetProfitStats() {
+  db.prepare(`
+    UPDATE player_stats
+    SET total_profit = 0, updated_at = unixepoch()
+  `).run();
+  try {
+    db.prepare(`UPDATE user_stats SET total_profit = 0`).run();
+  } catch { /* 旧表可能不存在 */ }
+  return { ok: true };
+}
+
+/** @deprecated 使用 resetWinrateStats / resetProfitStats */
+function resetAllPlayerStats() {
+  resetWinrateStats();
+  resetProfitStats();
+  return { ok: true };
+}
+
+/** 删除单场对局会话及相关手牌记录 */
+function deleteGameSession(sessionId) {
+  const id = Number(sessionId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false, msg: '无效的记录 ID' };
+  const session = db.prepare('SELECT id FROM game_sessions WHERE id = ?').get(id);
+  if (!session) return { ok: false, msg: '记录不存在' };
+
+  const tx = db.transaction(() => {
+    const handIds = db.prepare('SELECT id FROM hand_records WHERE session_id = ?').all(id).map((h) => h.id);
+    const delHandPlayers = db.prepare('DELETE FROM hand_players WHERE hand_id = ?');
+    for (const hid of handIds) delHandPlayers.run(hid);
+    db.prepare('DELETE FROM hand_records WHERE session_id = ?').run(id);
+    db.prepare('DELETE FROM session_players WHERE session_id = ?').run(id);
+    db.prepare('DELETE FROM game_sessions WHERE id = ?').run(id);
+  });
+  tx();
+  return { ok: true };
+}
+
+/** 删除全部对局会话记录（不影响排行累计） */
+function deleteAllGameSessions() {
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM hand_players').run();
+    db.prepare('DELETE FROM hand_records').run();
+    db.prepare('DELETE FROM session_players').run();
+    db.prepare('DELETE FROM game_sessions').run();
+  });
+  tx();
+  return { ok: true };
 }
 
 // ========== 旧接口兼容 ==========
@@ -798,8 +892,14 @@ module.exports = {
   saveSessionSettlement,
   listGameSessions,
   getSessionDetail,
+  listSessionHandsForHistory,
   getPlayerStats,
   getLeaderboard,
+  resetAllPlayerStats,
+  resetWinrateStats,
+  resetProfitStats,
+  deleteGameSession,
+  deleteAllGameSessions,
   saveGameRecord,
   getUserStats,
   getAllUserStats,

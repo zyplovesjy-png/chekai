@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
@@ -6,7 +6,6 @@ import { usePresence } from '@/hooks/usePresence';
 import { DURATION_OPTIONS } from '@/stores/roomStore';
 
 type Tab = 'rooms' | 'friends' | 'rank' | 'me';
-type RankType = 'profit' | 'record' | 'winrate';
 
 function Avatar({ path, name, size = 36 }: { path?: string | null; name?: string; size?: number }) {
   if (path) {
@@ -36,13 +35,16 @@ export default function LobbyPage() {
   const [tab, setTab] = useState<Tab>('rooms');
   const [rooms, setRooms] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
-  const [rankType, setRankType] = useState<RankType>('profit');
   const [rankRows, setRankRows] = useState<any[]>([]);
+  const [rankLoading, setRankLoading] = useState(false);
+  const rankReqId = useRef(0);
   const [records, setRecords] = useState<any[]>([]);
+  const [myStats, setMyStats] = useState<{ total_profit?: number; total_games?: number; wins?: number; losses?: number; ties?: number } | null>(null);
   const [overview, setOverview] = useState({ onlineCount: 0, roomCount: 0 });
 
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createDuration, setCreateDuration] = useState(120);
   const [createMinBuyIn, setCreateMinBuyIn] = useState(100);
@@ -63,6 +65,10 @@ export default function LobbyPage() {
     if (user?.role === 'admin') navigate('/admin', { replace: true });
   }, [user, navigate]);
 
+  useEffect(() => {
+    setNickname(user?.nickname || '');
+  }, [user?.nickname]);
+
   const loadRooms = useCallback(async () => {
     const r = await api('/api/rooms/list');
     if (r.ok) setRooms(r.rooms || []);
@@ -74,14 +80,24 @@ export default function LobbyPage() {
   }, [api]);
 
   const loadRank = useCallback(async () => {
-    const r = await api(`/api/leaderboard?type=${rankType}`);
+    const reqId = ++rankReqId.current;
+    setRankLoading(true);
+    const r = await api('/api/leaderboard?type=winrate');
+    if (reqId !== rankReqId.current) return;
+    setRankLoading(false);
     if (r.ok) setRankRows(r.rows || []);
-  }, [api, rankType]);
+  }, [api]);
 
   const loadRecords = useCallback(async () => {
-    const r = await api('/api/records?limit=20');
+    const r = await api('/api/records?limit=100');
     if (r.ok) setRecords(r.sessions || []);
   }, [api]);
+
+  const loadMyStats = useCallback(async () => {
+    if (!user?.username) return;
+    const r = await api(`/api/stats/${user.username}`);
+    if (r.ok) setMyStats(r.stats || null);
+  }, [api, user?.username]);
 
   const loadOverview = useCallback(async () => {
     const r = await api('/api/lobby/overview');
@@ -101,17 +117,41 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (tab === 'friends') loadFriends();
-    if (tab === 'rank') loadRank();
-    if (tab === 'me') loadRecords();
-  }, [tab, loadFriends, loadRank, loadRecords]);
+    if (tab === 'me') {
+      loadRecords();
+      loadMyStats();
+    }
+  }, [tab, loadFriends, loadRecords, loadMyStats]);
 
   useEffect(() => {
-    if (tab === 'rank') loadRank();
-  }, [rankType, tab, loadRank]);
+    if (tab !== 'rank') return;
+    setRankRows([]);
+    loadRank();
+  }, [tab, loadRank]);
 
   const handleLogout = () => {
     clear();
     navigate('/login', { replace: true });
+  };
+
+  const openProfile = () => {
+    setNickname(user?.nickname || '');
+    setOldPassword('');
+    setNewPassword('');
+    setProfileMsg('');
+    setShowProfile(true);
+  };
+
+  const handleDisbandRoom = async (code: string, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`确定销毁房间 ${code}？`)) return;
+    const r = await api(`/api/rooms/${code}/disband`, { method: 'POST' });
+    if (!r?.ok) {
+      alert(r?.msg || '销毁失败');
+      return;
+    }
+    loadRooms();
+    loadOverview();
   };
 
   const handleCreate = async () => {
@@ -188,6 +228,9 @@ export default function LobbyPage() {
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
+  const myProfit = Number(myStats?.total_profit) || 0;
+  const profitTone = myProfit > 0 ? 'up' : myProfit < 0 ? 'down' : 'flat';
+
   return (
     <div className="auth-body">
       <div className="auth-wrap">
@@ -200,7 +243,9 @@ export default function LobbyPage() {
               </div>
             </div>
             <div className="lobby-user">
-              <Avatar path={user?.avatar_path} name={user?.nickname} />
+              <button type="button" className="lobby-avatar-btn" onClick={openProfile} title="修改资料">
+                <Avatar path={user?.avatar_path} name={user?.nickname} />
+              </button>
               <span>{user?.nickname || '玩家'}</span>
               <button className="btn btn-small" onClick={handleLogout}>退出</button>
             </div>
@@ -236,20 +281,32 @@ export default function LobbyPage() {
                     {rooms.length === 0 ? (
                       <div className="room-list-empty">暂无房间，点击上方创建</div>
                     ) : (
-                      rooms.map((room) => (
-                        <div key={room.code} className="room-card" onClick={() => enterRoom(room.code)}>
-                          <div className="room-card-header">
-                            <span className="room-card-name">{room.name}</span>
-                            <span className="room-card-code">房号 {room.code}</span>
+                      rooms.map((room) => {
+                        const canDisband = !!room.canDisband;
+                        return (
+                          <div key={room.code} className="room-card" onClick={() => enterRoom(room.code)}>
+                            <div className="room-card-header">
+                              <span className="room-card-name">{room.name}</span>
+                              <span className="room-card-code">房号 {room.code}</span>
+                            </div>
+                            <div className="room-card-info">
+                              <span>{room.statusText || (room.gameStarted ? '已开局' : '等待中')}</span>
+                              <span>房主 {room.host}</span>
+                              <span>最少代入 {room.minBuyIn}分</span>
+                              {room.canSpectate && <span className="tag-spectate">可观战</span>}
+                            </div>
+                            {canDisband && (
+                              <button
+                                type="button"
+                                className="btn btn-small room-card-disband"
+                                onClick={(e) => handleDisbandRoom(room.code, e)}
+                              >
+                                销毁房间
+                              </button>
+                            )}
                           </div>
-                          <div className="room-card-info">
-                            <span>{room.statusText || (room.gameStarted ? '已开局' : '等待中')}</span>
-                            <span>房主 {room.host}</span>
-                            <span>最少代入 {room.minBuyIn}分</span>
-                            {room.canSpectate && <span className="tag-spectate">可观战</span>}
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -279,40 +336,20 @@ export default function LobbyPage() {
 
             {tab === 'rank' && (
               <>
-                <div className="rank-tabs">
-                  {([
-                    ['profit', '净输赢'],
-                    ['record', '胜负'],
-                    ['winrate', '胜率'],
-                  ] as [RankType, string][]).map(([id, label]) => (
-                    <button
-                      key={id}
-                      className={`lobby-tab sm ${rankType === id ? 'active' : ''}`}
-                      onClick={() => setRankType(id)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className={`rank-list rank-list--${rankType}`}>
-                  {rankRows.length === 0 ? (
+                <div className="room-list-title" style={{ marginBottom: 12 }}>胜率排行榜</div>
+                <div className="rank-list rank-list--winrate">
+                  {rankLoading && rankRows.length === 0 ? (
+                    <div className="room-list-empty">加载中…</div>
+                  ) : rankRows.length === 0 ? (
                     <div className="room-list-empty">暂无排行数据</div>
                   ) : (
                     rankRows.map((row, i) => {
                       const pos = i + 1;
-                      const profit = Number(row.total_profit) || 0;
                       const wins = Number(row.wins) || 0;
                       const losses = Number(row.losses) || 0;
-                      const ties = Number(row.ties) || 0;
                       const hands = Number(row.total_hands) || 0;
                       const winratePct = Math.round((Number(row.winrate) || 0) * 100);
-                      const profitSign = profit > 0 ? '+' : '';
-                      const metricTone =
-                        rankType === 'profit'
-                          ? (profit > 0 ? 'up' : profit < 0 ? 'down' : 'flat')
-                          : rankType === 'winrate'
-                            ? (winratePct >= 50 ? 'up' : winratePct > 0 ? 'flat' : 'down')
-                            : (wins >= losses ? 'up' : 'down');
+                      const metricTone = winratePct >= 50 ? 'up' : winratePct > 0 ? 'flat' : 'down';
 
                       return (
                         <div
@@ -322,46 +359,18 @@ export default function LobbyPage() {
                           <div className="rank-row-main">
                             <span className="rank-pos">{String(pos).padStart(2, '0')}</span>
                             <div className={`rank-metric tone-${metricTone}`}>
-                              {rankType === 'profit' && (
-                                <>
-                                  <span className="rank-metric-value">
-                                    {profitSign}{profit}
-                                  </span>
-                                  <span className="rank-metric-unit">净输赢</span>
-                                </>
-                              )}
-                              {rankType === 'record' && (
-                                <>
-                                  <span className="rank-metric-value rank-metric-record">
-                                    <em>{wins}</em>
-                                    <span className="rank-metric-sep">-</span>
-                                    <em className="is-loss">{losses}</em>
-                                    <span className="rank-metric-sep">-</span>
-                                    <em className="is-tie">{ties}</em>
-                                  </span>
-                                  <span className="rank-metric-unit">胜 · 负 · 平</span>
-                                </>
-                              )}
-                              {rankType === 'winrate' && (
-                                <>
-                                  <span className="rank-metric-value">
-                                    {winratePct}
-                                    <span className="rank-metric-pct">%</span>
-                                  </span>
-                                  <span className="rank-metric-unit">{hands} 局样本</span>
-                                </>
-                              )}
+                              <span className="rank-metric-value">
+                                {winratePct}
+                                <span className="rank-metric-pct">%</span>
+                              </span>
+                              <span className="rank-metric-unit">{hands} 局样本</span>
                             </div>
                           </div>
                           <div className="rank-row-who">
                             <Avatar path={row.avatar_path} name={row.nickname} size={28} />
                             <div className="rank-who-meta">
                               <div className="rank-who-name">{row.nickname}</div>
-                              <div className="rank-who-sub">
-                                {rankType === 'profit' && `${hands} 局`}
-                                {rankType === 'record' && `${hands} 局 · 净 ${profit > 0 ? '+' : ''}${profit}`}
-                                {rankType === 'winrate' && `${wins}胜 ${losses}负`}
-                              </div>
+                              <div className="rank-who-sub">{wins}胜 {losses}负</div>
                             </div>
                           </div>
                         </div>
@@ -373,37 +382,19 @@ export default function LobbyPage() {
             )}
 
             {tab === 'me' && (
-              <div className="profile-panel">
-                <div className="avatar-upload">
-                  <Avatar path={user?.avatar_path} name={user?.nickname} size={72} />
+              <div className="me-panel">
+                <div className={`me-profit-card tone-${profitTone}`}>
+                  <div className="me-profit-label">我的净输赢</div>
+                  <div className="me-profit-value">
+                    {myProfit > 0 ? '+' : ''}{myProfit}
+                  </div>
+                  <div className="me-profit-sub">
+                    累计 {Number(myStats?.total_games) || 0} 局
+                    {myStats ? ` · ${Number(myStats.wins) || 0}胜 ${Number(myStats.losses) || 0}负` : ''}
+                  </div>
                 </div>
-                <label className="btn btn-small" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: 16 }}>
-                  更换头像
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarUpload} />
-                </label>
-                <div className="form-row">
-                  <label>账号</label>
-                  <input value={user?.username || ''} readOnly disabled title="账号由管理员创建，不可修改" />
-                  <span className="form-hint">账号由管理员创建，不可修改</span>
-                </div>
-                <div className="form-row">
-                  <label>昵称</label>
-                  <input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} />
-                </div>
-                <div className="form-row">
-                  <label>原密码（改密时填写）</label>
-                  <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} autoComplete="current-password" />
-                </div>
-                <div className="form-row">
-                  <label>新密码</label>
-                  <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
-                </div>
-                {profileMsg && <div className="auth-error" style={{ color: 'var(--gold)' }}>{profileMsg}</div>}
-                <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleSaveProfile}>
-                  保存资料
-                </button>
 
-                <div className="room-list-section" style={{ marginTop: 24 }}>
+                <div className="room-list-section" style={{ marginTop: 20 }}>
                   <div className="room-list-title">我的对局</div>
                   {records.length === 0 ? (
                     <div className="room-list-empty">暂无记录</div>
@@ -477,6 +468,43 @@ export default function LobbyPage() {
               <div className="modal-actions">
                 <button className="btn btn-primary" onClick={handleJoin}>确认加入</button>
                 <button className="btn" onClick={() => setShowJoin(false)}>取消</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showProfile && (
+          <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowProfile(false); }}>
+            <div className="modal-content profile-modal">
+              <div className="modal-title">个人资料</div>
+              <div className="avatar-upload">
+                <Avatar path={user?.avatar_path} name={user?.nickname} size={72} />
+              </div>
+              <label className="btn btn-small" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: 16 }}>
+                更换头像
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarUpload} />
+              </label>
+              <div className="form-row">
+                <label>账号</label>
+                <input value={user?.username || ''} readOnly disabled title="账号由管理员创建，不可修改" />
+                <span className="form-hint">账号由管理员创建，不可修改</span>
+              </div>
+              <div className="form-row">
+                <label>昵称</label>
+                <input value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} />
+              </div>
+              <div className="form-row">
+                <label>原密码（改密时填写）</label>
+                <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} autoComplete="current-password" />
+              </div>
+              <div className="form-row">
+                <label>新密码</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
+              </div>
+              {profileMsg && <div className="auth-error" style={{ color: 'var(--gold)' }}>{profileMsg}</div>}
+              <div className="modal-actions">
+                <button className="btn btn-primary" onClick={handleSaveProfile}>保存资料</button>
+                <button className="btn" onClick={() => setShowProfile(false)}>关闭</button>
               </div>
             </div>
           </div>

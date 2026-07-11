@@ -36,6 +36,26 @@ export interface RoomInfo {
   paused?: boolean;
   /** 本局结束后结算 */
   endAfterHand?: boolean;
+  /** 整场已结束 / 后台标记解散 */
+  disbanded?: boolean;
+  /** 终局结算快照（disbanded 时可能附带） */
+  lastSettlement?: {
+    settlement: Array<{
+      username: string;
+      nickname: string;
+      initial: number;
+      final: number;
+      delta: number;
+    }>;
+    reason?: string;
+    potSplit?: {
+      pot: number;
+      recipientCount?: number;
+      base?: number;
+      remainder?: number;
+      shares?: Record<string, number>;
+    } | null;
+  } | null;
   createdAt: number;
 }
 

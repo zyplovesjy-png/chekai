@@ -1,177 +1,264 @@
 /**
- * Room SFX — Kenney Casino Audio (CC0) under /game/sounds/,
- * with Web Audio procedural fallback.
- * Credit: Kenney.nl (optional under CC0)
+ * Room SFX — Kenney Casino Audio (CC0) MP3 under /game/sounds/.
+ * HTMLAudio primary (iOS); Web Audio decode optional. No procedural beeps.
  */
 
 type SfxKind = 'deal' | 'chip' | 'fold' | 'knock' | 'warn' | 'win';
 
 const FILE_CANDIDATES: Record<SfxKind, string[]> = {
-  deal: ['card-place-1.ogg', 'card-place-2.ogg', 'card-place-3.ogg', 'card-slide-1.ogg'],
-  chip: ['chips-collide-1.ogg', 'chips-collide-2.ogg', 'chips-stack-1.ogg', 'chip-lay-1.ogg'],
-  fold: ['card-shove-1.ogg', 'card-slide-2.ogg'],
-  knock: ['chips-stack-3.ogg', 'chips-handle-1.ogg'],
-  warn: ['card-fan-1.ogg', 'die-throw-1.ogg'],
-  win: ['chips-stack-5.ogg', 'chips-handle-3.ogg'],
+  deal: ['card-place-1.mp3', 'card-place-2.mp3', 'card-place-3.mp3', 'card-slide-1.mp3'],
+  chip: ['chips-collide-1.mp3', 'chips-collide-2.mp3', 'chips-stack-1.mp3', 'chip-lay-1.mp3'],
+  fold: ['card-shove-1.mp3', 'card-slide-2.mp3'],
+  knock: ['chips-stack-3.mp3', 'chips-handle-1.mp3'],
+  warn: ['card-fan-1.mp3', 'die-throw-1.mp3'],
+  win: ['chips-stack-5.mp3', 'chips-handle-3.mp3'],
 };
 
 const SOUND_BASE = '/game/sounds/';
+const SFX_ENABLED_KEY = 'chekai-sfx-enabled';
 
 let unlocked = false;
 let audioCtx: AudioContext | null = null;
 const buffers = new Map<SfxKind, AudioBuffer[]>();
-const missing = new Set<SfxKind>();
+/** url list per kind after successful HEAD/GET check */
+const readyUrls = new Map<SfxKind, string[]>();
 let loadPromise: Promise<void> | null = null;
+let sfxEnabled = readEnabled();
+
+function readEnabled(): boolean {
+  try {
+    const v = localStorage.getItem(SFX_ENABLED_KEY);
+    if (v === null) return true;
+    return v !== '0' && v !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function isSfxEnabled() {
+  return sfxEnabled;
+}
+
+export function setSfxEnabled(on: boolean) {
+  sfxEnabled = !!on;
+  try {
+    localStorage.setItem(SFX_ENABLED_KEY, sfxEnabled ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(new CustomEvent('chekai-sfx-changed', { detail: { enabled: sfxEnabled } }));
+}
+
+export function toggleSfxEnabled() {
+  setSfxEnabled(!sfxEnabled);
+  if (sfxEnabled) unlockAudio();
+  return sfxEnabled;
+}
+
+function soundUrl(file: string): string {
+  return new URL(SOUND_BASE + file, window.location.origin).href;
+}
 
 function getCtx(): AudioContext | null {
   try {
     if (!audioCtx) {
-      audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      audioCtx = new (window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     }
-    if (audioCtx.state === 'suspended') void audioCtx.resume();
     return audioCtx;
   } catch {
     return null;
   }
 }
 
-/** Call once on first user gesture so mobile browsers allow audio. */
-export function unlockAudio() {
-  if (unlocked) return;
-  unlocked = true;
+function resumeSync(): AudioContext | null {
   const ctx = getCtx();
-  if (ctx) {
-    const buf = ctx.createBuffer(1, 1, 22050);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start(0);
+  if (!ctx) return null;
+  if (ctx.state === 'suspended') {
+    try {
+      void ctx.resume();
+    } catch {
+      /* ignore */
+    }
   }
+  return ctx;
+}
+
+async function ensureRunning(): Promise<AudioContext | null> {
+  const ctx = resumeSync();
+  if (!ctx) return null;
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch {
+      return null;
+    }
+  }
+  return ctx;
+}
+
+function makeHtmlAudio(url: string): HTMLAudioElement {
+  const el = new Audio(url);
+  el.preload = 'auto';
+  el.setAttribute('playsinline', 'true');
+  el.setAttribute('webkit-playsinline', 'true');
+  return el;
+}
+
+/** Call inside user gesture. Safe to call repeatedly. */
+export function unlockAudio() {
+  const ctx = resumeSync();
+  if (ctx) {
+    try {
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  try {
+    const probe = makeHtmlAudio(soundUrl(FILE_CANDIDATES.deal[0]));
+    probe.muted = true;
+    probe.volume = 0;
+    const p = probe.play();
+    if (p && typeof p.then === 'function') {
+      void p
+        .then(() => {
+          probe.pause();
+          probe.currentTime = 0;
+        })
+        .catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+
+  unlocked = true;
   void ensureFilesLoaded();
+}
+
+export function isAudioUnlocked() {
+  return unlocked;
 }
 
 async function ensureFilesLoaded() {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    const ctx = getCtx();
-    if (!ctx) return;
     const kinds = Object.keys(FILE_CANDIDATES) as SfxKind[];
+
     await Promise.all(
       kinds.map(async (kind) => {
-        const loaded: AudioBuffer[] = [];
+        const urls: string[] = [];
         for (const name of FILE_CANDIDATES[kind]) {
+          const url = soundUrl(name);
           try {
-            const res = await fetch(SOUND_BASE + name);
+            const res = await fetch(url, { cache: 'force-cache' });
+            if (!res.ok) continue;
+            // Warm browser media cache
+            const blob = await res.blob();
+            if (!blob.size) continue;
+            const objUrl = URL.createObjectURL(blob);
+            urls.push(objUrl);
+          } catch {
+            /* try next file */
+          }
+        }
+        if (urls.length) readyUrls.set(kind, urls);
+      }),
+    );
+
+    const ctx = await ensureRunning();
+    if (!ctx) return;
+
+    await Promise.all(
+      kinds.map(async (kind) => {
+        const urls = readyUrls.get(kind);
+        if (!urls?.length) return;
+        const loaded: AudioBuffer[] = [];
+        for (const url of urls) {
+          try {
+            const res = await fetch(url);
             if (!res.ok) continue;
             const arr = await res.arrayBuffer();
             const decoded = await ctx.decodeAudioData(arr.slice(0));
             loaded.push(decoded);
           } catch {
-            /* try next */
+            /* skip */
           }
         }
         if (loaded.length) buffers.set(kind, loaded);
-        else missing.add(kind);
       }),
     );
   })();
   return loadPromise;
 }
 
-function playBuffer(kind: SfxKind, volume = 0.35) {
-  const list = buffers.get(kind);
-  const ctx = getCtx();
-  if (!list?.length || !ctx) return false;
-  const buf = list[Math.floor(Math.random() * list.length)];
-  const src = ctx.createBufferSource();
-  const gain = ctx.createGain();
-  src.buffer = buf;
-  gain.gain.value = volume;
-  src.connect(gain);
-  gain.connect(ctx.destination);
-  src.start(0);
-  return true;
+function pickUrl(kind: SfxKind): string | null {
+  const ready = readyUrls.get(kind);
+  if (ready?.length) return ready[Math.floor(Math.random() * ready.length)];
+  const files = FILE_CANDIDATES[kind];
+  if (!files?.length) return null;
+  return soundUrl(files[Math.floor(Math.random() * files.length)]);
 }
 
-function playProcedural(kind: SfxKind) {
-  const ctx = getCtx();
-  if (!ctx) return;
-  const now = ctx.currentTime;
-  const master = ctx.createGain();
-  master.connect(ctx.destination);
-
-  const blip = (freq: number, dur: number, type: OscillatorType, vol: number, delay = 0) => {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, now + delay);
-    g.gain.setValueAtTime(vol, now + delay);
-    g.gain.exponentialRampToValueAtTime(0.001, now + delay + dur);
-    osc.connect(g);
-    g.connect(master);
-    osc.start(now + delay);
-    osc.stop(now + delay + dur + 0.02);
-  };
-
-  const noiseBurst = (dur: number, vol: number, delay = 0) => {
-    const len = Math.floor(ctx.sampleRate * dur);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = ctx.createBufferSource();
-    const g = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = kind === 'chip' ? 1800 : 900;
-    src.buffer = buf;
-    g.gain.value = vol;
-    src.connect(filter);
-    filter.connect(g);
-    g.connect(master);
-    src.start(now + delay);
-  };
-
-  switch (kind) {
-    case 'deal':
-      noiseBurst(0.06, 0.22);
-      blip(420, 0.05, 'triangle', 0.08, 0.01);
-      break;
-    case 'chip':
-      noiseBurst(0.05, 0.18);
-      blip(880, 0.04, 'sine', 0.1, 0.01);
-      blip(1320, 0.03, 'sine', 0.06, 0.03);
-      break;
-    case 'fold':
-      noiseBurst(0.1, 0.16);
-      blip(220, 0.12, 'sawtooth', 0.05);
-      break;
-    case 'knock':
-      blip(140, 0.08, 'square', 0.12);
-      blip(90, 0.12, 'sine', 0.1, 0.05);
-      noiseBurst(0.08, 0.14, 0.02);
-      break;
-    case 'warn':
-      blip(880, 0.12, 'triangle', 0.12);
-      blip(660, 0.15, 'triangle', 0.1, 0.14);
-      break;
-    case 'win':
-      blip(523, 0.1, 'sine', 0.1);
-      blip(659, 0.1, 'sine', 0.1, 0.08);
-      blip(784, 0.18, 'sine', 0.12, 0.16);
-      break;
+/** Always new Audio(src) — cloneNode is unreliable on iOS. */
+function playHtml(kind: SfxKind, volume: number): boolean {
+  const url = pickUrl(kind);
+  if (!url) return false;
+  try {
+    const el = makeHtmlAudio(url);
+    el.volume = Math.min(1, Math.max(0, volume));
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        /* autoplay blocked — next gesture unlock will help */
+      });
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 
-function play(kind: SfxKind, volume?: number) {
+async function playBuffer(kind: SfxKind, volume: number): Promise<boolean> {
+  const list = buffers.get(kind);
+  const ctx = await ensureRunning();
+  if (!list?.length || !ctx || ctx.state === 'suspended') return false;
+  try {
+    const buf = list[Math.floor(Math.random() * list.length)];
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    gain.gain.value = volume;
+    src.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function play(kind: SfxKind, volume = 0.35) {
+  if (!sfxEnabled) return;
   if (!unlocked) unlockAudio();
-  if (playBuffer(kind, volume)) return;
-  if (missing.has(kind)) {
-    playProcedural(kind);
+  else resumeSync();
+
+  // File SFX only — never synthetic beeps
+  if (playHtml(kind, volume)) {
+    void ensureFilesLoaded();
     return;
   }
-  void ensureFilesLoaded().then(() => {
-    if (!playBuffer(kind, volume)) playProcedural(kind);
-  });
+  void (async () => {
+    await ensureFilesLoaded();
+    if (!sfxEnabled) return;
+    if (playHtml(kind, volume)) return;
+    await playBuffer(kind, volume);
+  })();
 }
 
 let lastDealAt = 0;

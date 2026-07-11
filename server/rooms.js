@@ -1,5 +1,6 @@
 /* ========== 房间系统：创建/加入/座位管理/游戏状态 ========== */
 const { attachLogger, getLogger } = require('./game-logger');
+const { accumulateChipArchive } = require('./chip-ledger');
 
 // 内存存储所有房间
 const roomsByCode = new Map();
@@ -10,6 +11,51 @@ const SEAT_IDS = ['bottom-0','right-1','right-0','top-1','top-0','left-1','left-
 const DEFAULT_BUY_IN = 100;
 const ALLOWED_DURATIONS = [30, 60, 120, 180, 240];
 const ALLOWED_EXTEND = [15, 30, 60];
+const EMPTY_ROOM_DESTROY_MS = 5 * 60 * 1000;
+const LOBBY_GHOST_TIMEOUT_MS = 90 * 1000;
+
+let onRoomMapChanged = null;
+function setRoomMapChangeHandler(fn) {
+  onRoomMapChanged = typeof fn === 'function' ? fn : null;
+}
+
+function isRoomFullyEmpty(room) {
+  return !!room && room.members.length === 0 && room.seats.every((s) => s === null);
+}
+
+function cancelEmptyRoomDestroy(room) {
+  if (!room) return;
+  if (room.emptyDestroyTimer) {
+    clearTimeout(room.emptyDestroyTimer);
+    room.emptyDestroyTimer = null;
+  }
+  room.emptySince = null;
+}
+
+function destroyEmptyRoom(code) {
+  const room = roomsByCode.get(code);
+  if (!room || !isRoomFullyEmpty(room)) return false;
+  cancelEmptyRoomDestroy(room);
+  getLogger(room)?.close();
+  room.logger = null;
+  for (const ws of room.ws) {
+    try { ws.close(); } catch { /* ignore */ }
+  }
+  room.ws.clear();
+  roomsByCode.delete(code);
+  try { onRoomMapChanged?.(); } catch { /* ignore */ }
+  return true;
+}
+
+function scheduleEmptyRoomDestroy(code) {
+  const room = roomsByCode.get(code);
+  if (!room || !isRoomFullyEmpty(room)) return;
+  if (room.emptyDestroyTimer) return;
+  room.emptySince = room.emptySince || Date.now();
+  room.emptyDestroyTimer = setTimeout(() => {
+    destroyEmptyRoom(code);
+  }, EMPTY_ROOM_DESTROY_MS);
+}
 
 function normalizeDurationMinutes(value, fallback = 120) {
   const n = Number(value);
@@ -79,13 +125,14 @@ function joinRoom(code, user) {
   }
   room.members.push({ username: user.username, nickname: user.nickname, ready: false, avatar_path: user.avatar_path || null });
   delete room.disconnected[user.username];
+  cancelEmptyRoomDestroy(room);
   getLogger(room)?.logMember('join', user);
   return { ok: true, room };
 }
 
 function getRoomByCode(code) { return roomsByCode.get(code); }
 
-function summarizeRoom(room) {
+function summarizeRoom(room, viewerUsername = null) {
   const seatedCount = room.seats.filter(s => s !== null).length;
   const memberCount = room.members.length;
   let statusText;
@@ -97,6 +144,15 @@ function summarizeRoom(room) {
   } else {
     statusText = `等待中（${memberCount}人）· ${room.durationMinutes}分钟`;
   }
+  const iAmMember = !!(viewerUsername && room.members.some((m) => m.username === viewerUsername));
+  // 仅房主本人在场、且未开局时可销毁
+  const canDisband = !!(
+    viewerUsername
+    && room.host === viewerUsername
+    && iAmMember
+    && !room.gameStarted
+    && !room.members.some((m) => m.username !== viewerUsername)
+  );
   return {
     code: room.code,
     name: room.name,
@@ -115,6 +171,8 @@ function summarizeRoom(room) {
     createdAt: room.createdAt,
     statusText,
     canSpectate: room.gameStarted && seatedCount >= 2,
+    iAmMember,
+    canDisband,
   };
 }
 
@@ -124,7 +182,7 @@ function getRoomsByCreator(username) {
     if (room.creator !== username) continue;
     if (room.disbanded) continue;
     if (room.members.length > 0 && !room.gameFinished) {
-      result.push(summarizeRoom(room));
+      result.push(summarizeRoom(room, username));
     }
   }
   return result.sort((a, b) => b.createdAt - a.createdAt);
@@ -137,7 +195,7 @@ function getVisibleRooms(username) {
     if (room.disbanded) continue;
     if (room.members.length === 0 || room.gameFinished) continue;
     // 所有玩家可见彼此房间（隐式全员好友）
-    result.push(summarizeRoom(room));
+    result.push(summarizeRoom(room, username));
   }
   return result.sort((a, b) => {
     // 自己的房间优先
@@ -160,7 +218,7 @@ function getActiveRoomCount() {
 function getRoomInfo(code, user) {
   const room = roomsByCode.get(code);
   if (!room) return null;
-  return {
+  const info = {
     code: room.code, name: room.name, host: room.host, creator: room.creator,
     durationMinutes: room.durationMinutes,
     endsAt: room.endsAt || null,
@@ -172,8 +230,14 @@ function getRoomInfo(code, user) {
     gameRound: room.gameRound,
     paused: !!room.paused,
     endAfterHand: !!room.endAfterHand,
+    disbanded: !!room.disbanded,
     createdAt: room.createdAt,
   };
+  // 已结束对局：附带终局结算，方便刷新/重连补界面
+  if (room.disbanded && room.lastSettlement) {
+    info.lastSettlement = room.lastSettlement;
+  }
+  return info;
 }
 
 // 坐下 / 换座
@@ -184,6 +248,8 @@ function sitDown(code, username, nickname, seatId, buyIn) {
 
   const targetIdx = SEAT_IDS.indexOf(seatId);
   if (room.seats[targetIdx]) return { ok: false, msg: '该座位已被占用' };
+
+  cancelEmptyRoomDestroy(room);
 
   const existingSeatIdx = room.seats.findIndex(s => s && s.username === username);
   const isSeatChange = existingSeatIdx >= 0;
@@ -236,7 +302,12 @@ function sitDown(code, username, nickname, seatId, buyIn) {
       joiningNextRound: inHand,
     };
     if (!room.initialBuyIns) room.initialBuyIns = [];
-    if (!room.initialBuyIns.find(i => i.username === username)) {
+    const existingBuyIn = room.initialBuyIns.find(i => i.username === username);
+    if (existingBuyIn) {
+      // 中途离场再买入：累加总带入，供结算兜底
+      existingBuyIn.buyIn = (existingBuyIn.buyIn || 0) + finalBuyIn;
+      if (nickname) existingBuyIn.nickname = nickname;
+    } else {
       room.initialBuyIns.push({ username, nickname, buyIn: finalBuyIn });
     }
     getLogger(room)?.logSeat('sit', {
@@ -325,21 +396,23 @@ function standUp(code, username) {
     if (inHand && p && !p.folded) {
       return { ok: false, msg: '对局进行中，请先弃牌或等待本局结束' };
     }
-    // 保留筹码档案
-    if (!room.chipArchives) room.chipArchives = {};
-    room.chipArchives[username] = {
+    // 保留筹码档案（累加本段，避免再入座后覆盖丢失）
+    const standFinal = p
+      ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0))
+      : (room.seats[idx].buyIn || 0);
+    const standBuyIn = p?.totalBuyIn || room.seats[idx].buyIn || 0;
+    accumulateChipArchive(room, {
       username,
       nickname: p?.nickname || room.seats[idx].nickname,
-      initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || room.seats[idx].buyIn || 0,
-      totalBuyIn: p?.totalBuyIn || room.seats[idx].buyIn || 0,
-      finalPot: p ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)) : room.seats[idx].buyIn,
-      leftAt: Date.now(),
-    };
+      totalBuyIn: standBuyIn,
+      finalPot: standFinal,
+      initialBuyIn: standBuyIn,
+    });
     room.seats[idx] = null;
     if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
     getLogger(room)?.logSeat('stand', {
       username, nickname: room.chipArchives[username]?.nickname, seatId: SEAT_IDS[idx], seatNo: idx + 1,
-      finalPot: room.chipArchives[username]?.finalPot,
+      finalPot: standFinal,
     });
     return { ok: true, seats: room.seats };
   }
@@ -373,13 +446,13 @@ function leaveRoom(code, username) {
   room.members = room.members.filter(m => m.username !== username);
   const seatIdx = room.seats.findIndex(s => s && s.username === username);
   if (seatIdx >= 0) room.seats[seatIdx] = null;
+  // 房主离开：随机转给仍在房间内的人；离开者不再是房主
   if (room.host === username && room.members.length > 0) {
-    room.host = room.members[0].username;
+    const pick = room.members[Math.floor(Math.random() * room.members.length)];
+    room.host = pick.username;
   }
   if (room.members.length === 0) {
-    getLogger(room)?.close();
-    room.logger = null;
-    roomsByCode.delete(code);
+    scheduleEmptyRoomDestroy(code);
     return null;
   }
   return room;
@@ -409,8 +482,31 @@ function handleReconnect(code, username) {
 
 function checkDisconnectTimeouts() {
   const now = Date.now();
-  for (const room of roomsByCode.values()) {
-    if (!room.game || !room.game.state) continue;
+  for (const room of [...roomsByCode.values()]) {
+    // 未开局：清理幽灵成员，并兜底销毁空房
+    if (!room.game || !room.game.state) {
+      for (const [username, disconnectedAt] of Object.entries(room.disconnected || {})) {
+        if (now - disconnectedAt <= LOBBY_GHOST_TIMEOUT_MS) continue;
+        const live = [...room.ws].some(
+          (ws) => ws.username === username && ws.readyState === 1,
+        );
+        if (live) {
+          delete room.disconnected[username];
+          continue;
+        }
+        leaveRoom(room.code, username);
+        broadcastRoom(roomsByCode.get(room.code));
+      }
+      if (
+        isRoomFullyEmpty(room)
+        && room.emptySince
+        && now - room.emptySince >= EMPTY_ROOM_DESTROY_MS
+      ) {
+        destroyEmptyRoom(room.code);
+      }
+      continue;
+    }
+
     const s = room.game.state;
 
     for (const [username, disconnectedAt] of Object.entries(room.disconnected)) {
@@ -434,21 +530,21 @@ function checkDisconnectTimeouts() {
 
       // 归档筹码并清空座位，避免幽灵座位继续发牌
       if (p) {
-        if (!room.chipArchives) room.chipArchives = {};
-        room.chipArchives[username] = {
+        accumulateChipArchive(room, {
           username,
           nickname: p.nickname,
-          initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || 0,
           totalBuyIn: p.totalBuyIn || 0,
           finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
-          leftAt: Date.now(),
-        };
+          initialBuyIn: p.totalBuyIn || 0,
+        });
       }
       const seatIdx = room.seats.findIndex(seat => seat && seat.username === username);
       if (seatIdx >= 0) room.seats[seatIdx] = null;
       if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
       getLogger(room)?.logDisconnect('timeout_remove', username, {
-        finalPot: room.chipArchives?.[username]?.finalPot,
+        finalPot: p
+          ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0))
+          : room.chipArchives?.[username]?.finalPot,
       });
 
       delete room.disconnected[username];
@@ -500,25 +596,27 @@ setInterval(checkDisconnectTimeouts, 10000);
 
 function broadcastRoom(room) {
   if (!room) return;
-  const data = JSON.stringify({
-    type: 'room_update',
-    room: {
-      code: room.code, name: room.name, host: room.host,
-      durationMinutes: room.durationMinutes,
-      endsAt: room.endsAt || null,
-      extendedMinutes: room.extendedMinutes || 0,
-      minBuyIn: room.minBuyIn,
-      members: room.members.map(m => ({
-        username: m.username, nickname: m.nickname, ready: m.ready,
-        disconnected: !!room.disconnected[m.username],
-      })),
-      seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
-      gameStarted: room.gameStarted,
-      gameRound: room.gameRound,
-      paused: !!room.paused,
-      endAfterHand: !!room.endAfterHand,
-    }
-  });
+  const payload = {
+    code: room.code, name: room.name, host: room.host,
+    durationMinutes: room.durationMinutes,
+    endsAt: room.endsAt || null,
+    extendedMinutes: room.extendedMinutes || 0,
+    minBuyIn: room.minBuyIn,
+    members: room.members.map(m => ({
+      username: m.username, nickname: m.nickname, ready: m.ready,
+      disconnected: !!room.disconnected[m.username],
+    })),
+    seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
+    gameStarted: room.gameStarted,
+    gameRound: room.gameRound,
+    paused: !!room.paused,
+    endAfterHand: !!room.endAfterHand,
+    disbanded: !!room.disbanded,
+  };
+  if (room.disbanded && room.lastSettlement) {
+    payload.lastSettlement = room.lastSettlement;
+  }
+  const data = JSON.stringify({ type: 'room_update', room: payload });
   for (const ws of room.ws) { if (ws.readyState === 1) ws.send(data); }
 }
 
@@ -534,4 +632,6 @@ module.exports = {
   leaveRoom, broadcastRoom, finishRound,
   markDisconnected, handleReconnect,
   getSeatIds,
+  setRoomMapChangeHandler, destroyEmptyRoom, scheduleEmptyRoomDestroy, cancelEmptyRoomDestroy,
+  accumulateChipArchive,
 };

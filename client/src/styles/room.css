@@ -1,4 +1,4 @@
-﻿/* 旧 new-table / sketch 布局层已移除；房间页仅使用 .tea-room */
+/* 旧 new-table / sketch 布局层已移除；房间页仅使用 .tea-room */
 
 /* 观战席 */
 
@@ -968,6 +968,13 @@
 .tea-room .tea-menu-btn:active {
   background: rgba(224, 192, 106, 0.18);
 }
+.tea-room .tea-sfx-btn.is-muted {
+  color: rgba(224, 192, 106, 0.45);
+  border-color: rgba(224, 192, 106, 0.18);
+}
+.tea-room .tea-sfx-btn svg {
+  display: block;
+}
 
 /* —— 舞台 —— */
 .tea-room .tea-stage,
@@ -1619,7 +1626,8 @@
 .tea-room .tea-hud {
   z-index: 20;
   position: relative;
-  padding: 2px 10px calc(6px + var(--safe-b));
+  /* 底部只留系统安全区；无安全区时保留 4px，避免再叠加额外 6~8px 空白 */
+  padding: 2px 10px max(4px, var(--safe-b));
   background: linear-gradient(180deg, rgba(7, 20, 15, 0) 0%, rgba(7, 20, 15, 0.88) 16%, rgba(7, 20, 15, 0.97) 100%);
   border-top: 1px solid rgba(224, 192, 106, 0.12);
   flex-shrink: 0;
@@ -2360,11 +2368,11 @@
 
 /* ========== 自检修复：HUD 压缩 / 空座 / 木边可见 ========== */
 .tea-room .tea-hud {
-  padding: 2px 10px calc(8px + var(--safe-b));
+  padding: 2px 10px max(4px, var(--safe-b));
   flex-shrink: 0;
   max-height: none;
-  /* timer(~22) + self-row + hand(70) + bar(44) + 间距，发牌前后同高 */
-  min-height: calc(22px + 36px + 70px + 44px + 20px + var(--safe-b));
+  /* timer(~22) + self-row + hand(70) + bar(44) + 间距；安全区只走 padding-bottom */
+  min-height: calc(22px + 36px + 70px + 44px + 20px);
 }
 
 .tea-room .tea-hud .self-row {

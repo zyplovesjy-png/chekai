@@ -17,14 +17,24 @@ const {
   getRoomByCode, getRoomsByCreator, getVisibleRooms, getActiveRoomCount,
   markDisconnected, handleReconnect,
   ALLOWED_DURATIONS, ALLOWED_EXTEND, normalizeDurationMinutes,
+  setRoomMapChangeHandler, destroyEmptyRoom,
+  accumulateChipArchive,
 } = require('./rooms');
-const { GameEngine } = require('./game');
+const { settlePlayerChips } = require('./chip-ledger');
+const {
+  beginSettleAnimGate,
+  clearSettleAnimGate,
+  ackSettleAnimDone,
+} = require('./settle-anim-gate');
+const { GameEngine, DECK } = require('./game');
 const { resolveAllInShowdown } = require('./betting-flow');
 const {
   saveGameRecord, getUserStats, getAllUserStats, getUserGameHistory,
   createGameSession, finishGameSession, saveHandRecord, saveSessionSettlement,
   updateSessionSchedule,
-  listGameSessions, getSessionDetail, getLeaderboard, findUserByUsername,
+  listGameSessions, getSessionDetail, listSessionHandsForHistory, getLeaderboard, findUserByUsername,
+  resetAllPlayerStats, resetWinrateStats, resetProfitStats,
+  deleteGameSession, deleteAllGameSessions,
 } = require('./db');
 const { attachLogger, getLogger } = require('./game-logger');
 
@@ -112,6 +122,8 @@ function broadcastLobbyUpdate() {
     }
   }
 }
+
+setRoomMapChangeHandler(broadcastLobbyUpdate);
 
 const app = express();
 const server = http.createServer(app);
@@ -210,18 +222,18 @@ function runTurnTimeout(room, actor) {
     const seatIdx = room.seats.findIndex(seat => seat && seat.username === actor);
     if (seatIdx >= 0) {
       const seat = room.seats[seatIdx];
-      if (!room.chipArchives) room.chipArchives = {};
-      room.chipArchives[actor] = {
+      const segFinal = p.pot + (p.committed || 0) + (p.pendingBuyIn || 0);
+      const segBuy = p.totalBuyIn || seat.buyIn || 0;
+      accumulateChipArchive(room, {
         username: actor,
         nickname: p.nickname || seat.nickname,
-        initialBuyIn: (room.initialBuyIns || []).find(i => i.username === actor)?.buyIn || seat.buyIn || 0,
-        totalBuyIn: p.totalBuyIn || seat.buyIn || 0,
-        finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
-        leftAt: Date.now(),
-      };
+        totalBuyIn: segBuy,
+        finalPot: segFinal,
+        initialBuyIn: segBuy,
+      });
       room.seats[seatIdx] = null;
       if (engine2.rebuildPlayersFromSeats) engine2.rebuildPlayersFromSeats(room.seats);
-      getLogger(room)?.logDisconnect('timeout_remove', actor, { finalPot: room.chipArchives[actor].finalPot });
+      getLogger(room)?.logDisconnect('timeout_remove', actor, { finalPot: segFinal });
       sendToRoom(room, { type: 'player_timeout', username: actor });
       broadcastRoom(room);
     }
@@ -433,19 +445,19 @@ function archiveAndRemoveSeat(room, username) {
   const p = engine?.getPlayer(username);
   const seatIdx = room.seats.findIndex(s => s && s.username === username);
   if (seatIdx < 0 && !p) return;
-  if (!room.chipArchives) room.chipArchives = {};
-  room.chipArchives[username] = {
+  const segFinal = p ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)) : 0;
+  const segBuy = p?.totalBuyIn || room.seats[seatIdx]?.buyIn || 0;
+  accumulateChipArchive(room, {
     username,
     nickname: p?.nickname || room.seats[seatIdx]?.nickname || username,
-    initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || 0,
-    totalBuyIn: p?.totalBuyIn || room.seats[seatIdx]?.buyIn || 0,
-    finalPot: p ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)) : 0,
-    leftAt: Date.now(),
-  };
+    totalBuyIn: segBuy,
+    finalPot: segFinal,
+    initialBuyIn: segBuy,
+  });
   if (seatIdx >= 0) room.seats[seatIdx] = null;
   if (p) p.eliminated = true;
   getLogger(room)?.logDisconnect('broke_exit', username, {
-    finalPot: room.chipArchives[username].finalPot,
+    finalPot: segFinal,
   });
 }
 
@@ -632,6 +644,7 @@ function distributeLeftoverPotAtGameEnd(room) {
 // 游戏结束并发送结算
 function endGameAndSendSettlement(room, reason) {
   if (!room.game) return;
+  clearSettleAnimGate(room);
   room.awaitingBuyInDecision = null;
   const engine = room.game;
   engine.state.phase = 'gameover';
@@ -649,32 +662,32 @@ function endGameAndSendSettlement(room, reason) {
   initialBuyIns.forEach(initial => {
     const p = playerMap.get(initial.username);
     const archive = (room.chipArchives || {})[initial.username];
-    // 仍在局内的玩家：pot 可能含未结算喊价预扣，结算时一并计入
-    const finalPot = p
-      ? p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)
-      : (archive ? archive.finalPot : initial.buyIn);
-    const totalBuyIn = p
-      ? (p.totalBuyIn || initial.buyIn)
-      : (archive ? archive.totalBuyIn : initial.buyIn);
-    settlementMap.set(initial.username, {
-      username: initial.username,
-      nickname: initial.nickname || p?.nickname || initial.username,
-      initial: totalBuyIn,
-      final: finalPot,
-      delta: finalPot - totalBuyIn,
-    });
+    // 合并「中途离场已兑现」+「当前在座」，避免再买入后丢掉前一段
+    settlementMap.set(
+      initial.username,
+      settlePlayerChips({
+        username: initial.username,
+        nickname: initial.nickname || p?.nickname || initial.username,
+        player: p || null,
+        archive: archive || null,
+        fallbackBuyIn: initial.buyIn,
+      }),
+    );
   });
 
   // 中途加入、档案里有但 initialBuyIns 没有的
   Object.values(room.chipArchives || {}).forEach(archive => {
     if (settlementMap.has(archive.username)) return;
-    settlementMap.set(archive.username, {
-      username: archive.username,
-      nickname: archive.nickname,
-      initial: archive.totalBuyIn,
-      final: archive.finalPot,
-      delta: archive.finalPot - archive.totalBuyIn,
-    });
+    settlementMap.set(
+      archive.username,
+      settlePlayerChips({
+        username: archive.username,
+        nickname: archive.nickname,
+        player: playerMap.get(archive.username) || null,
+        archive,
+        fallbackBuyIn: archive.totalBuyIn,
+      }),
+    );
   });
 
   const settlement = [...settlementMap.values()];
@@ -693,7 +706,10 @@ function endGameAndSendSettlement(room, reason) {
   log?.logSessionEnd(settlement, reason, potSplit);
   log?.close();
   room.logger = null;
-  sendToRoom(room, { type: 'game_settlement', settlement, reason, potSplit: potSplit || null });
+  const settlementPayload = { settlement, reason, potSplit: potSplit || null };
+  // 供掉线玩家刷新/重连时补发结算，避免只剩空桌壳
+  room.lastSettlement = settlementPayload;
+  sendToRoom(room, { type: 'game_settlement', ...settlementPayload });
 
   room.game = null;
   room.gameStarted = false;
@@ -715,6 +731,7 @@ function endGameAndSendSettlement(room, reason) {
 // 庄家轮转并开始下一局
 function startNextRoundAuto(room, opts = {}) {
   if (!room.game) return;
+  clearSettleAnimGate(room);
   if (room.awaitingBuyInDecision && !opts.skipBrokeDecision) return;
   if (room.nextRoundTimer) { clearTimeout(room.nextRoundTimer); room.nextRoundTimer = null; }
 
@@ -866,7 +883,7 @@ app.get('/api/stats/:username', authMiddleware, (req, res) => {
 app.get('/api/leaderboard', authMiddleware, (req, res) => {
   const type = ['profit', 'record', 'winrate'].includes(req.query.type)
     ? req.query.type
-    : 'profit';
+    : 'winrate';
   res.json({ ok: true, type, rows: getLeaderboard(type) });
 });
 
@@ -960,6 +977,41 @@ app.get('/api/admin/records', adminMiddleware, (req, res) => {
   res.json({ ok: true, sessions: listGameSessions({ limit, offset }) });
 });
 
+app.post('/api/admin/stats/reset', adminMiddleware, (req, res) => {
+  // 兼容旧调用：默认只清胜率榜；body.scope = 'profit' | 'winrate' | 'all'
+  const scope = req.body?.scope || 'winrate';
+  if (scope === 'profit') {
+    resetProfitStats();
+    return res.json({ ok: true, scope: 'profit' });
+  }
+  if (scope === 'all') {
+    resetAllPlayerStats();
+    return res.json({ ok: true, scope: 'all' });
+  }
+  resetWinrateStats();
+  res.json({ ok: true, scope: 'winrate' });
+});
+
+app.post('/api/admin/stats/reset-winrate', adminMiddleware, (req, res) => {
+  resetWinrateStats();
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/stats/reset-profit', adminMiddleware, (req, res) => {
+  resetProfitStats();
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/records/:id', adminMiddleware, (req, res) => {
+  const result = deleteGameSession(req.params.id);
+  res.json(result);
+});
+
+app.post('/api/admin/records/clear', adminMiddleware, (req, res) => {
+  deleteAllGameSessions();
+  res.json({ ok: true });
+});
+
 /* ---------- 房间接口 ---------- */
 app.post('/api/rooms/create', authMiddleware, (req, res) => {
   if (req.user.role === 'admin') {
@@ -1042,6 +1094,7 @@ app.post('/api/rooms/:code/start', authMiddleware, (req, res) => {
       console.error('[db] createGameSession failed', e);
       room.dbSessionId = null;
     }
+    room.roundHistory = [];
     sendToRoom(room, { type: 'game_init', gameRound: room.gameRound });
     startBankerSelection(room);
   }
@@ -1054,6 +1107,17 @@ app.post('/api/rooms/:code/disband', authMiddleware, (req, res) => {
   const room = roomsByCode.get(req.params.code);
   if (!room) return res.json({ ok: false, msg: '房间不存在' });
   if (room.host !== req.user.username) return res.json({ ok: false, msg: '只有房主可以解散房间' });
+  // 须人在房间内：离开大厅后不能远程销毁
+  if (!room.members.some((m) => m.username === req.user.username)) {
+    return res.json({ ok: false, msg: '请先进入房间再销毁' });
+  }
+  if (room.gameStarted) {
+    return res.json({ ok: false, msg: '对局进行中，无法销毁房间' });
+  }
+  // 除房主外还有其他成员时不允许销毁
+  if (room.members.some((m) => m.username !== req.user.username)) {
+    return res.json({ ok: false, msg: '房间内还有其他玩家，无法销毁' });
+  }
   clearTurnTimer(req.params.code);
   if (room.nextRoundTimer) { clearTimeout(room.nextRoundTimer); room.nextRoundTimer = null; }
   getLogger(room)?.logSessionEnd([], 'disbanded');
@@ -1093,17 +1157,17 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
       }
     }
     if (p) {
-      if (!room.chipArchives) room.chipArchives = {};
-      room.chipArchives[username] = {
+      const segFinal = p.pot + (p.committed || 0) + (p.pendingBuyIn || 0);
+      const segBuy = p.totalBuyIn || 0;
+      accumulateChipArchive(room, {
         username,
         nickname: p.nickname,
-        initialBuyIn: (room.initialBuyIns || []).find(i => i.username === username)?.buyIn || 0,
-        totalBuyIn: p.totalBuyIn || 0,
-        finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
-        leftAt: Date.now(),
-      };
+        totalBuyIn: segBuy,
+        finalPot: segFinal,
+        initialBuyIn: segBuy,
+      });
       getLogger(room)?.logDisconnect('leave', username, {
-        finalPot: room.chipArchives[username].finalPot,
+        finalPot: segFinal,
       });
     }
   }
@@ -1239,7 +1303,10 @@ wss.on('connection', (ws) => {
         return;
       }
       const room = roomsByCode.get((msg.code || ''));
-      if (!room) { ws.send(JSON.stringify({ type: 'error', msg: '房间不存在' })); return; }
+      if (!room) {
+        ws.send(JSON.stringify({ type: 'error', code: 'ROOM_GONE', msg: '房间不存在或已关闭' }));
+        return;
+      }
       if (!room.members.find(m => m.username === payload.username)) {
         ws.send(JSON.stringify({ type: 'error', msg: '你不在该房间' })); return;
       }
@@ -1259,14 +1326,44 @@ wss.on('connection', (ws) => {
       delete room.disconnected[payload.username];
       broadcastRoom(room);
 
+      // 对局已结束：补发结算，避免刷新后卡在空桌
+      if (room.disbanded) {
+        if (room.lastSettlement) {
+          ws.send(JSON.stringify({ type: 'game_settlement', ...room.lastSettlement }));
+        } else {
+          ws.send(JSON.stringify({
+            type: 'room_ended',
+            msg: '对局已结束，房间已关闭',
+          }));
+        }
+        return;
+      }
+
+      // 本场对局记录：房间内存优先，空则从 DB 补
+      if (room.gameStarted || room.game) {
+        sendRoundHistory(ws, room);
+      }
+
       if (room.game && room.game.state && room.game.state.phase !== 'idle') {
         const priv = room.game.getPrivateState(payload.username);
-        ws.send(JSON.stringify({ type: 'game_sync', state: priv }));
+        ws.send(JSON.stringify({
+          type: 'game_sync',
+          state: priv,
+          roundHistory: ensureRoundHistory(room),
+        }));
         // 如果是从断线恢复，通知其他玩家
         if (wasDisconnected) {
           getLogger(room)?.logDisconnect('reconnect', payload.username);
           sendToRoom(room, { type: 'player_reconnected', username: payload.username });
         }
+      } else if (room.gameStarted && room.game) {
+        // idle 间隙也补一份私有状态，避免刷新后只剩桌布
+        const priv = room.game.getPrivateState(payload.username);
+        ws.send(JSON.stringify({
+          type: 'game_sync',
+          state: priv,
+          roundHistory: ensureRoundHistory(room),
+        }));
       }
       // 重连时补发破产决策状态
       if (room.awaitingBuyInDecision) {
@@ -1342,12 +1439,25 @@ wss.on('connection', (ws) => {
       const p = engine.getPlayer(ws.username);
       if (!p) return;
 
+      const { action, amount } = msg;
+
+      // 敲后连发的三花补摊：不在 toAct 队列里，单独放行
+      if (action === 'show_sanhua' && p.sanhuaOfferPending) {
+        const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
+        const result = engine.doShowSanhua(p);
+        if (!result) { sendError(ws, '无效操作'); return; }
+        getLogger(room)?.logAction(engine, result, { before });
+        sendToRoom(room, { type: 'game_action', action: result });
+        broadcastRoundState(room);
+        finishSelectingIfNeededAfterSanhua(room, engine);
+        return;
+      }
+
       if (s.toAct.length === 0 || s.toAct[0] !== ws.username) {
         ws.send(JSON.stringify({ type: 'error', msg: '还没轮到你操作' }));
         return;
       }
 
-      const { action, amount } = msg;
       let result;
       const currentBetBefore = s.currentBet;
       const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
@@ -1367,10 +1477,15 @@ wss.on('connection', (ws) => {
           break;
         case 'raise': {
           const betAmount = parseBetAmount(amount);
-          if (betAmount === null) { sendError(ws, '\u8fd4\u62db\u91d1\u989d\u5fc5\u987b\u662f\u6b63\u6574\u6570'); return; }
-          if (betAmount <= s.currentBet) { sendError(ws, '\u8fd4\u62db\u91d1\u989d\u5fc5\u987b\u5927\u4e8e\u5f53\u524d\u62db'); return; }
-          if (!s.betStarted && betAmount < s.minBet) { sendError(ws, '\u672c\u8f6e\u6700\u4f4e\u4e0b\u6ce8\u4e3a ' + s.minBet); return; }
-          if (betAmount - p.committed > p.pot) { sendError(ws, '\u5206\u6570\u4e0d\u8db3'); return; }
+          if (betAmount === null) { sendError(ws, '返招金额必须是正整数'); return; }
+          if (!s.betStarted) {
+            if (betAmount <= s.currentBet) { sendError(ws, '返招金额必须大于当前招'); return; }
+            if (betAmount < s.minBet) { sendError(ws, '本轮最低下注为 ' + s.minBet); return; }
+          } else if (betAmount < s.currentBet * 2) {
+            sendError(ws, '返招至少为当前喊价的两倍（' + (s.currentBet * 2) + '）');
+            return;
+          }
+          if (betAmount - p.committed > p.pot) { sendError(ws, '分数不足'); return; }
           result = engine.doRaise(p, betAmount);
           break;
         }
@@ -1487,6 +1602,9 @@ wss.on('connection', (ws) => {
       const p = engine.getPlayer(ws.username);
       if (!p) return;
 
+      // 配牌即表示放弃敲后补发的三花摊牌机会
+      engine.declineSanhuaOffer(p);
+
       const { headIdx } = msg;
       // 校验索引合法性（客户端传来的是点选的两张，后端自动判头尾）
       if (!Array.isArray(headIdx) || headIdx.length !== 2) return;
@@ -1518,23 +1636,22 @@ wss.on('connection', (ws) => {
           log?.logCompare(engine, compareResult, snapshotBefore);
           log?.logRoundEnd(engine, 'compare');
           persistHandRecord(room, 'compare');
-          sendToRoom(room, { type: 'game_compare', result: compareResult });
           engine.syncSeatBuyIns();
-          // 比牌后统一进 done，由 startNextRoundAuto 判断：满局数 / 输光决策 / 继续
+          // 比牌后统一进 done，由 settle gate / startNextRoundAuto 判断
           s.phase = 'done';
-          // 比牌里标记的 eliminated 先清掉，留给局间决策处理
           engine.players.forEach(p => {
             if (p.pot <= 0) p.eliminated = false;
           });
           broadcastRoundState(room);
-          // 比牌结果展示 2 秒后再开下一局
-          if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
-          room.nextRoundTimer = setTimeout(() => {
-            room.nextRoundTimer = null;
-            startNextRoundAuto(room);
-          }, 2000);
+          finishHandAndScheduleNext(room, compareResult);
         }, 700);
       }
+    }
+
+    if (msg.type === 'settle_anim_done') {
+      const room = roomsByCode.get(ws.currentRoomCode);
+      if (!room || !ws.username) return;
+      ackSettleAnimDone(room, ws.username, msg.id || msg.settleAnimId);
     }
   });
 
@@ -1578,9 +1695,159 @@ function saveRoundResults(room) {
   }
 }
 
+/** 牌 id → 完整牌对象（对局记录展示用） */
+function hydrateCard(idOrCard) {
+  if (!idOrCard) return null;
+  if (typeof idOrCard === 'object' && idOrCard.id) {
+    const full = DECK.find((c) => c.id === idOrCard.id);
+    return full ? { ...full } : { ...idOrCard };
+  }
+  const id = String(idOrCard);
+  const full = DECK.find((c) => c.id === id);
+  return full ? { ...full } : {
+    id,
+    color: 'black',
+    rank: '?',
+    cnName: id,
+    cnChar: '?',
+    cardPoints: 0,
+    order: 0,
+    suit: '♠',
+  };
+}
+
+function hydrateCards(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(hydrateCard).filter(Boolean);
+}
+
+function buildRoundHistoryRecord(engine, endReason) {
+  if (!engine?.players) return null;
+  const splits = engine.state?.splits || {};
+  const bankerIdx = engine.state?.bankerIdx;
+  const bankerUsername = (bankerIdx >= 0 && engine.players[bankerIdx])
+    ? engine.players[bankerIdx].username
+    : '';
+  const compare = engine.state?.compareResult || null;
+  let winner = compare?.winner || null;
+  if (!winner) {
+    let best = null;
+    for (const p of engine.players) {
+      const d = p.lastDelta || 0;
+      if (d > 0 && (!best || d > best.delta)) best = { username: p.username, delta: d };
+    }
+    winner = best?.username || null;
+  }
+  return {
+    round: engine.room?.gameRound || 0,
+    bankerUsername,
+    winner,
+    endReason: endReason || compare?.reason || null,
+    players: engine.players.map((p) => {
+      const sp = splits[p.username];
+      const result = compare?.results?.[p.username];
+      const fullHand = compare?.hands?.[p.username];
+      const handSrc = (Array.isArray(fullHand) && fullHand.length)
+        ? fullHand
+        : (p.hand || []);
+      const head = sp?.head || compare?.splits?.[p.username]?.head || [];
+      const tail = sp?.tail || compare?.splits?.[p.username]?.tail || [];
+      const folded = !!p.folded;
+      return {
+        username: p.username,
+        nickname: p.nickname || p.username,
+        hand: hydrateCards(handSrc),
+        split: (head.length || tail.length)
+          ? {
+            head: hydrateCards(head),
+            tail: hydrateCards(tail),
+            headName: sp?.headEval?.name || compare?.splits?.[p.username]?.headEval?.name || '',
+            tailName: sp?.tailEval?.name || compare?.splits?.[p.username]?.tailEval?.name || '',
+          }
+          : null,
+        lastDelta: result?.lastDelta ?? (p.lastDelta || 0),
+        wins: result?.wins || 0,
+        losses: result?.losses || 0,
+        ties: result?.ties || 0,
+        folded,
+        rested: !!p.rested || (endReason === 'rest_cross' && !folded),
+        eliminated: !!p.eliminated,
+      };
+    }),
+  };
+}
+
+function loadRoundHistoryFromDb(sessionId) {
+  const rows = listSessionHandsForHistory(sessionId);
+  return rows.map((h) => {
+    let winner = null;
+    let best = null;
+    for (const p of h.players) {
+      if (p.delta > 0 && (!best || p.delta > best.delta)) best = p;
+    }
+    winner = best?.username || null;
+    return {
+      round: h.handNo,
+      bankerUsername: h.bankerUsername || '',
+      winner,
+      endReason: h.endReason,
+      players: h.players.map((p) => ({
+        username: p.username,
+        nickname: p.nickname || p.username,
+        hand: hydrateCards(p.cardIds),
+        split: (p.headIds?.length || p.tailIds?.length)
+          ? {
+            head: hydrateCards(p.headIds),
+            tail: hydrateCards(p.tailIds),
+            headName: '',
+            tailName: '',
+          }
+          : null,
+        lastDelta: p.delta || 0,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+        folded: !!p.folded,
+        rested: !!p.rested,
+        eliminated: false,
+      })),
+    };
+  });
+}
+
+/** 房间内存优先；为空则从 DB 灌入（抗进程未重启但内存被清的情况） */
+function ensureRoundHistory(room) {
+  if (!room) return [];
+  if (!Array.isArray(room.roundHistory)) room.roundHistory = [];
+  if (room.roundHistory.length > 0) return room.roundHistory;
+  if (!room.dbSessionId) return room.roundHistory;
+  try {
+    room.roundHistory = loadRoundHistoryFromDb(room.dbSessionId);
+  } catch (e) {
+    console.error('[db] loadRoundHistoryFromDb failed', e);
+  }
+  return room.roundHistory;
+}
+
+function appendRoundHistory(room, endReason) {
+  if (!room?.game) return;
+  if (!Array.isArray(room.roundHistory)) room.roundHistory = [];
+  const record = buildRoundHistoryRecord(room.game, endReason);
+  if (!record || !record.round) return;
+  const idx = room.roundHistory.findIndex((r) => r.round === record.round);
+  if (idx >= 0) room.roundHistory[idx] = record;
+  else room.roundHistory.push(record);
+}
+
+function sendRoundHistory(ws, room) {
+  if (!ws || ws.readyState !== 1) return;
+  const history = ensureRoundHistory(room);
+  ws.send(JSON.stringify({ type: 'round_history', history }));
+}
+
 /** 每手结束写入 hand_records + 更新 player_stats */
 function persistHandRecord(room, endReason) {
-  if (!room?.game || !room.dbSessionId) return;
+  if (!room?.game) return;
   const engine = room.game;
   const splits = engine.state?.splits || {};
   const bankerIdx = engine.state?.bankerIdx;
@@ -1600,11 +1867,15 @@ function persistHandRecord(room, endReason) {
       rested: !!p.rested || (endReason === 'rest_cross' && !p.folded),
     };
   });
-  try {
-    saveHandRecord(room.dbSessionId, room.gameRound || 1, players, endReason, bankerUsername);
-  } catch (e) {
-    console.error('[db] saveHandRecord failed', e);
+  if (room.dbSessionId) {
+    try {
+      saveHandRecord(room.dbSessionId, room.gameRound || 1, players, endReason, bankerUsername);
+    } catch (e) {
+      console.error('[db] saveHandRecord failed', e);
+    }
   }
+  // 房间内存一份，刷新/重连可直接下发（即使 DB 写入失败也保留）
+  appendRoundHistory(room, endReason);
 }
 
 // 广播当前回合状态给所有玩家
@@ -1648,6 +1919,87 @@ function buildLightCompareResult(engine, { winner, reason }) {
   };
 }
 
+function finishHandAndScheduleNext(room, compareResult, { endGameReason = null } = {}) {
+  const onReady = () => {
+    if (endGameReason) {
+      endGameAndSendSettlement(room, endGameReason);
+      return;
+    }
+    startNextRoundAuto(room);
+  };
+  const gate = beginSettleAnimGate(room, { compareResult, onReady });
+  sendToRoom(room, {
+    type: 'game_compare',
+    result: compareResult,
+    settleAnimId: gate.settleAnimId,
+    settleAnimMinMs: gate.minWait,
+    settleAnimMaxMs: gate.maxWait,
+  });
+}
+
+function finishSelectingIfNeededAfterSanhua(room, engine) {
+  const s = engine.state;
+  if (s.phase !== 'selecting') return;
+
+  const still = s.activeIds
+    .map((id) => engine.getPlayer(id))
+    .filter((p) => p && !p.folded && !p.eliminated);
+
+  if (still.length === 0) {
+    s.restMangoLevel = 0;
+    s.beatMangoWinner = null;
+    s.phase = 'done';
+    s.compareResult = buildLightCompareResult(engine, { winner: null, reason: 'all_sanhua' });
+    engine.syncSeatBuyIns();
+    getLogger(room)?.logRoundEnd(engine, 'all_sanhua');
+    persistHandRecord(room, 'all_sanhua');
+    broadcastRoundState(room);
+    finishHandAndScheduleNext(room, s.compareResult);
+    return;
+  }
+
+  if (still.length === 1) {
+    const winner = still[0];
+    engine.refundCommitment(winner);
+    const won = s.potPi;
+    winner.pot += won;
+    winner.lastDelta += won;
+    s.potPi = 0;
+    // 亮三花不算弃牌，不揍芒；本局已收过的芒清零
+    s.restMangoLevel = 0;
+    s.beatMangoWinner = null;
+    s.phase = 'done';
+    s.compareResult = buildLightCompareResult(engine, { winner: winner.username, reason: 'all_sanhua' });
+    engine.syncSeatBuyIns();
+    getLogger(room)?.logRoundEnd(engine, 'all_sanhua');
+    persistHandRecord(room, 'all_sanhua');
+    broadcastRoundState(room);
+    finishHandAndScheduleNext(room, s.compareResult);
+    return;
+  }
+
+  const allDone = still.every((p) => s.splits[p.username]);
+  if (!allDone) return;
+
+  s.phase = 'comparing';
+  broadcastRoundState(room);
+  setTimeout(() => {
+    const log = getLogger(room);
+    const snapshotBefore = log?.snapshot(engine);
+    const compareResult = engine.doCompare();
+    log?.logCompare(engine, compareResult, snapshotBefore);
+    log?.logRoundEnd(engine, 'compare');
+    persistHandRecord(room, 'compare');
+    engine.syncSeatBuyIns();
+    s.phase = 'done';
+    engine.players.forEach((pl) => {
+      if (pl.pot <= 0) pl.eliminated = false;
+    });
+    broadcastRoundState(room);
+    finishHandAndScheduleNext(room, compareResult);
+  }, 700);
+}
+
 function handleBettingDone(room, engine, done) {
   const s = engine.state;
   const log = getLogger(room);
@@ -1667,22 +2019,11 @@ function handleBettingDone(room, engine, done) {
     log?.logRoundEnd(engine, done.reason);
     persistHandRecord(room, done.reason);
     broadcastRoundState(room);
-    // 在座不足 2 人（掉线离座）→ 直接总结算
     const seatedCount = room.seats.filter(seat => seat !== null).length;
-    if (seatedCount < 2 || room.pendingEndReason === 'players') {
-      if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
-      room.nextRoundTimer = setTimeout(() => {
-        room.nextRoundTimer = null;
-        endGameAndSendSettlement(room, room.pendingEndReason || 'players');
-      }, 800);
-      return;
-    }
-    // 短暂间隔后自动开始下一局（庄家轮转）
-    if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
-    room.nextRoundTimer = setTimeout(() => {
-      room.nextRoundTimer = null;
-      startNextRoundAuto(room);
-    }, 800);
+    const endGameReason = (seatedCount < 2 || room.pendingEndReason === 'players')
+      ? (room.pendingEndReason || 'players')
+      : null;
+    finishHandAndScheduleNext(room, s.compareResult, { endGameReason });
     return;
   }
 
@@ -1694,11 +2035,7 @@ function handleBettingDone(room, engine, done) {
     log?.logRoundEnd(engine, 'rest_cross');
     persistHandRecord(room, 'rest_cross');
     broadcastRoundState(room);
-    if (room.nextRoundTimer) clearTimeout(room.nextRoundTimer);
-    room.nextRoundTimer = setTimeout(() => {
-      room.nextRoundTimer = null;
-      startNextRoundAuto(room);
-    }, 800);
+    finishHandAndScheduleNext(room, s.compareResult);
     return;
   }
 
@@ -1742,5 +2079,5 @@ app.get(/^\/(?!api\/|ws$).*/, (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`扯旋服务器已启动: http://localhost:${PORT}`);
-  console.log(`预设账号: user1 ~ user8 / 123456`);
+  console.log(`预设账号: zhr/wrz/my/zml/zyp/mxc/syf/lql / 123456`);
 });

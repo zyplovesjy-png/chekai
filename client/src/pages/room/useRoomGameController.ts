@@ -8,6 +8,7 @@ import { SEAT_IDS, TURN_TIME_SECONDS } from './constants';
 import { calcSeatRotation } from './seatLayout';
 import { estimateDealDurationMs } from './components/AnimatedLayer';
 import type { ChipAnimationEvent } from './pixi/pixiTableTypes';
+import { estimateSettleChipAnimMs, settleAnimBaseDelayMs, SETTLE_ANIM_TIMING } from './animationEvents';
 import {
   playFoldSound,
   playKnockSound,
@@ -72,7 +73,10 @@ export function useRoomGameController({
   const turnDeadlineRef = useRef<number>(0);
   const clearTurnTickRef = useRef<() => void>(() => {});
   const startLocalTurnTickRef = useRef<(secondsLeft: number, deadline?: number) => void>(() => {});
-
+  /** 对局进行中刷新后，等待 WS game_sync；未收到则周期性重发 join */
+  const awaitingGameSyncRef = useRef(false);
+  const sendRef = useRef<(data: any) => boolean>(() => false);
+  const settleAnimAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   roomRef.current = room;
   myUsernameRef.current = myUsername;
   gameRef.current = game;
@@ -175,6 +179,10 @@ export function useRoomGameController({
       if (dealTimerRef.current) {
         clearTimeout(dealTimerRef.current);
         dealTimerRef.current = null;
+      }
+      if (settleAnimAckTimerRef.current) {
+        clearTimeout(settleAnimAckTimerRef.current);
+        settleAnimAckTimerRef.current = null;
       }
       if (bankerAnimRef.current) {
         clearInterval(bankerAnimRef.current);
@@ -286,7 +294,15 @@ export function useRoomGameController({
           extendedMinutes: r.extendedMinutes || 0,
           paused: !!r.paused,
           endAfterHand: !!r.endAfterHand,
+          disbanded: !!r.disbanded,
         });
+        if (r.disbanded && r.lastSettlement?.settlement) {
+          awaitingGameSyncRef.current = false;
+          gameRef.current.setSettlement(
+            r.lastSettlement.settlement,
+            r.lastSettlement.potSplit || null,
+          );
+        }
       },
       room_time_update: (msg: any) => {
         const cur = useRoomStore.getState().room;
@@ -332,10 +348,32 @@ export function useRoomGameController({
         if (cur) setRoomRef.current({ ...cur, endAfterHand: true });
         gameRef.current.pushFeed('房主已设定：本局结束后结算', 'system');
       },
-      game_init: () => { gameRef.current.setGameStarted(true); },
-      game_sync: (msg: any) => { gameRef.current.setGameStarted(true); gameRef.current.setPrivateState(msg.state); },
-      game_state: (msg: any) => gameRef.current.setPublicState(msg.state),
-      game_private: (msg: any) => gameRef.current.setPrivateState(msg.state),
+      game_init: () => {
+        gameRef.current.setGameStarted(true);
+        gameRef.current.setRoundHistory([]);
+        awaitingGameSyncRef.current = false;
+      },
+      game_sync: (msg: any) => {
+        awaitingGameSyncRef.current = false;
+        gameRef.current.setGameStarted(true);
+        gameRef.current.setPrivateState(msg.state);
+        if (Array.isArray(msg.roundHistory)) {
+          gameRef.current.setRoundHistory(msg.roundHistory);
+        }
+      },
+      round_history: (msg: any) => {
+        if (Array.isArray(msg.history)) {
+          gameRef.current.setRoundHistory(msg.history);
+        }
+      },
+      game_state: (msg: any) => {
+        awaitingGameSyncRef.current = false;
+        gameRef.current.setPublicState(msg.state);
+      },
+      game_private: (msg: any) => {
+        awaitingGameSyncRef.current = false;
+        gameRef.current.setPrivateState(msg.state);
+      },
       game_action: (msg: any) => {
         if (!msg.action) return;
 
@@ -429,7 +467,9 @@ export function useRoomGameController({
         const winnerName = msg.result?.winner as string | undefined;
         const winnerSeat = visualOf(winnerName);
         if (winnerSeat >= 0 && msg.result?.reason !== 'rest_cross') {
-          // 底池飞向赢家
+          // all_folded：弃牌已 to_pot，只需底池→赢家；再 seat_to_seat 会重复飞一次
+          const baseDelay = settleAnimBaseDelayMs(msg.result?.reason);
+          const foldedOnly = msg.result?.reason === 'all_folded' || msg.result?.reason === 'all_sanhua';
           setTimeout(() => {
             setChipAnim({
               key: Date.now(),
@@ -438,32 +478,53 @@ export function useRoomGameController({
               player: winnerName,
               amount: 20,
             });
-          }, 120);
-          // 其他有净输的玩家 → 赢家
-          const results = msg.result?.results || {};
-          let delay = 280;
-          Object.entries(results).forEach(([uname, r]: [string, any]) => {
-            if (uname === winnerName) return;
-            if ((r?.lastDelta ?? 0) >= 0) return;
-            const fromSeat = visualOf(uname);
-            if (fromSeat < 0) return;
-            setTimeout(() => {
-              setChipAnim({
-                key: Date.now() + fromSeat,
-                kind: 'seat_to_seat',
-                fromVisualSeat: fromSeat,
-                toVisualSeat: winnerSeat,
-                player: uname,
-                amount: Math.abs(r.lastDelta || 10),
-              });
-            }, delay);
-            delay += 160;
-          });
+          }, baseDelay);
+          if (!foldedOnly) {
+            const results = msg.result?.results || {};
+            let delay = baseDelay + SETTLE_ANIM_TIMING.AFTER_POT_TO_WINNER_MS;
+            Object.entries(results).forEach(([uname, r]: [string, any]) => {
+              if (uname === winnerName) return;
+              if ((r?.lastDelta ?? 0) >= 0) return;
+              const fromSeat = visualOf(uname);
+              if (fromSeat < 0) return;
+              setTimeout(() => {
+                setChipAnim({
+                  key: Date.now() + fromSeat,
+                  kind: 'seat_to_seat',
+                  fromVisualSeat: fromSeat,
+                  toVisualSeat: winnerSeat,
+                  player: uname,
+                  amount: Math.abs(r.lastDelta || 10),
+                });
+              }, delay);
+              delay += SETTLE_ANIM_TIMING.SEAT_STAGGER_MS;
+            });
+          }
+        }
+
+        // B：本地结算飞筹估时结束后 ACK，服务端齐了或超时再开下一局
+        if (msg.settleAnimId) {
+          if (settleAnimAckTimerRef.current) {
+            clearTimeout(settleAnimAckTimerRef.current);
+            settleAnimAckTimerRef.current = null;
+          }
+          const waitMs = estimateSettleChipAnimMs(msg.result);
+          settleAnimAckTimerRef.current = setTimeout(() => {
+            settleAnimAckTimerRef.current = null;
+            sendRef.current({ type: 'settle_anim_done', settleAnimId: msg.settleAnimId });
+          }, waitMs);
         }
       },
       game_settlement: (msg: any) => {
+        awaitingGameSyncRef.current = false;
         setBuyInDecision(null);
         gameRef.current.setSettlement(msg.settlement || [], msg.potSplit || null);
+      },
+      room_ended: (msg: any) => {
+        awaitingGameSyncRef.current = false;
+        gameRef.current.reset();
+        alert(msg.msg || '对局已结束，房间已关闭');
+        navigateRef.current('/lobby', { replace: true });
       },
       awaiting_buyin_decision: (msg: any) => {
         // 兼容旧单人字段
@@ -494,6 +555,7 @@ export function useRoomGameController({
       },
       player_reconnected: () => gameRef.current.pushFeed('玩家重新连接', 'system'),
       room_disbanded: () => {
+        awaitingGameSyncRef.current = false;
         gameRef.current.reset();
         alert('房间已被房主解散');
         navigateRef.current('/lobby', { replace: true });
@@ -501,6 +563,10 @@ export function useRoomGameController({
       error: (msg: any) => {
         gameRef.current.showToast(msg.msg || '错误', { ms: 2800 });
         gameRef.current.pushFeed(msg.msg || '错误', 'error');
+        if (msg.code === 'ROOM_GONE' || /房间不存在|已关闭|已解散/.test(String(msg.msg || ''))) {
+          awaitingGameSyncRef.current = false;
+          navigateRef.current('/lobby', { replace: true });
+        }
       },
       banker_selecting: () => {
         const currentGame = gameRef.current;
@@ -537,31 +603,93 @@ export function useRoomGameController({
   }
 
   const handlers = handlersRef.current!;
-  const { send } = useWebSocket(code || null, handlers);
+  const { send, ensureConnected } = useWebSocket(code || null, handlers);
+  sendRef.current = send;
+
+  /** 把 GET /api/rooms/:code 的 room 规范化进 store（与 WS room_update 字段对齐） */
+  const applyRoomPayload = useCallback((r: any) => {
+    if (!r) return;
+    setRoom({
+      ...r,
+      durationMinutes: r.durationMinutes ?? 120,
+      endsAt: r.endsAt ?? null,
+      extendedMinutes: r.extendedMinutes || 0,
+      paused: !!r.paused,
+      endAfterHand: !!r.endAfterHand,
+      disbanded: !!r.disbanded,
+    });
+  }, [setRoom]);
+
+  /**
+   * HTTP 写操作成功后主动拉一次房间快照。
+   * 不替代 WS：WS 仍负责他人操作推送；这里保证「自己点了坐下/准备」在 WS 短暂丢包时本地也能刷新。
+   */
+  const refreshRoom = useCallback(async () => {
+    if (!code) return false;
+    const result = await api(`/api/rooms/${code}`);
+    if (!result?.ok || !result.room) return false;
+    applyRoomPayload(result.room);
+    if (result.room.disbanded && result.room.lastSettlement?.settlement) {
+      awaitingGameSyncRef.current = false;
+      gameRef.current.setSettlement(
+        result.room.lastSettlement.settlement,
+        result.room.lastSettlement.potSplit || null,
+      );
+    }
+    ensureConnected();
+    return true;
+  }, [api, applyRoomPayload, code, ensureConnected]);
 
   useEffect(() => {
     game.reset();
-    return () => { game.reset(); };
+    awaitingGameSyncRef.current = false;
+    return () => { game.reset(); awaitingGameSyncRef.current = false; };
   }, [code]);
 
   useEffect(() => {
     if (!code) return;
     api(`/api/rooms/${code}`).then((result) => {
       if (!result.ok) {
-        alert('房间不存在或已解散');
+        alert(result.msg || '房间不存在或已解散');
         navigate('/lobby', { replace: true });
         return;
       }
-      setRoom({
-        ...result.room,
-        durationMinutes: result.room.durationMinutes ?? 120,
-        endsAt: result.room.endsAt ?? null,
-        extendedMinutes: result.room.extendedMinutes || 0,
-        paused: !!result.room.paused,
-        endAfterHand: !!result.room.endAfterHand,
-      });
+      const r = result.room;
+      applyRoomPayload(r);
+      if (r.disbanded) {
+        awaitingGameSyncRef.current = false;
+        if (r.lastSettlement?.settlement?.length) {
+          gameRef.current.setSettlement(r.lastSettlement.settlement, r.lastSettlement.potSplit || null);
+        } else {
+          alert('对局已结束，房间已关闭');
+          navigate('/lobby', { replace: true });
+        }
+        return;
+      }
+      // 对局进行中：等 WS 补 game_sync；未开局则不需要
+      awaitingGameSyncRef.current = !!r.gameStarted;
+      ensureConnected();
     });
-  }, [code, api, navigate, setRoom]);
+  }, [code, api, navigate, applyRoomPayload, ensureConnected]);
+
+  // 刷新后若迟迟收不到 game_sync，周期性重发 join_room
+  useEffect(() => {
+    if (!code) return;
+    const timer = setInterval(() => {
+      if (!awaitingGameSyncRef.current) return;
+      ensureConnected();
+    }, 2500);
+    const stop = setTimeout(() => {
+      if (awaitingGameSyncRef.current) {
+        awaitingGameSyncRef.current = false;
+        gameRef.current.showToast('对局状态同步超时，请再次刷新', { ms: 3200 });
+      }
+    }, 45000);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [code, ensureConnected]);
 
   const getAvatar = useCallback((username?: string) => {
     if (!room || !username) return undefined;
@@ -610,10 +738,11 @@ export function useRoomGameController({
     }
     setShowBuyIn(false);
     setPendingSeatIdx(null);
+    await refreshRoom();
     if (result.spectating) {
       game.pushFeed('已入座，本局观战，下一局开始打牌', 'system');
     }
-  }, [api, buyInAmount, code, pendingSeatIdx, game]);
+  }, [api, buyInAmount, code, pendingSeatIdx, game, refreshRoom]);
 
   const handleSeatChangeConfirm = useCallback(async () => {
     if (pendingSeatIdx === null || !code) return;
@@ -628,8 +757,9 @@ export function useRoomGameController({
     }
     setShowSeatChange(false);
     setPendingSeatIdx(null);
+    await refreshRoom();
     game.pushFeed(`已换到 ${pendingSeatIdx + 1} 号座`, 'system');
-  }, [api, code, pendingSeatIdx, game]);
+  }, [api, code, pendingSeatIdx, game, refreshRoom]);
 
   const emptySeatAction = useMemo((): 'sit' | 'join' | 'change' | 'none' => {
     if (!room) return 'none';
@@ -645,16 +775,18 @@ export function useRoomGameController({
 
   const handleStandUp = useCallback(async () => {
     if (!code) return;
-    await api(`/api/rooms/${code}/stand`, { method: 'POST' });
-  }, [api, code]);
+    const result = await api(`/api/rooms/${code}/stand`, { method: 'POST' });
+    if (result?.ok) await refreshRoom();
+  }, [api, code, refreshRoom]);
 
   const handleAddBuyIn = useCallback(async (amount: number) => {
     if (!code || amount <= 0) return;
-    await api(`/api/rooms/${code}/add-buyin`, {
+    const result = await api(`/api/rooms/${code}/add-buyin`, {
       method: 'POST',
       body: JSON.stringify({ amount }),
     });
-  }, [api, code]);
+    if (result?.ok) await refreshRoom();
+  }, [api, code, refreshRoom]);
 
   const handleBuyInDecision = useCallback((choice: 'continue' | 'settle', amount?: number) => {
     send({ type: 'buyin_decision', choice, amount });
@@ -663,14 +795,20 @@ export function useRoomGameController({
 
   const handleReady = useCallback(async () => {
     if (!code) return;
-    await api(`/api/rooms/${code}/ready-seat`, { method: 'POST' });
-  }, [api, code]);
+    const result = await api(`/api/rooms/${code}/ready-seat`, { method: 'POST' });
+    if (result?.ok) await refreshRoom();
+    else if (result?.msg) alert(result.msg);
+  }, [api, code, refreshRoom]);
 
   const handleStartGame = useCallback(async () => {
     if (!code) return;
     const result = await api(`/api/rooms/${code}/start`, { method: 'POST' });
-    if (!result.ok) alert(result.msg);
-  }, [api, code]);
+    if (!result.ok) {
+      alert(result.msg);
+      return;
+    }
+    await refreshRoom();
+  }, [api, code, refreshRoom]);
 
   const handleDisband = useCallback(async () => {
     if (!code) return;

@@ -224,6 +224,7 @@ class GameEngine {
         sanhuaType: null,
         sanhuaCards: [],
         sanhuaRevealLocked: false,
+        sanhuaOfferPending: false,
         lastDelta: 0,
         roundStartPot: buyIn,
         pendingBuyIn: 0,
@@ -364,14 +365,25 @@ class GameEngine {
 
   canShowSanhua(player) {
     const s = this.state;
-    if (!player || player.folded || player.eliminated || player.allIn || player.sanhuaShown || player.sanhuaRevealLocked) return false;
+    if (!player || player.folded || player.eliminated || player.sanhuaShown || player.sanhuaRevealLocked) return false;
+    if (!checkSanHua(player.hand).sanhua) return false;
+    // 敲后连发满牌：从未有过「成三花后的发话机会」，补一次摊牌
+    if (player.sanhuaOfferPending) return true;
+    if (player.allIn) return false;
     if (!['betting2', 'betting3'].includes(s.phase)) return false;
     if (!s.toAct.includes(player.username)) return false;
-    return checkSanHua(player.hand).sanhua;
+    return true;
   }
 
   lockSanhuaRevealIfAvailable(player) {
     if (this.canShowSanhua(player)) player.sanhuaRevealLocked = true;
+  }
+
+  /** 放弃敲后补发的三花机会（例如直接配牌） */
+  declineSanhuaOffer(player) {
+    if (!player?.sanhuaOfferPending) return;
+    player.sanhuaOfferPending = false;
+    player.sanhuaRevealLocked = true;
   }
 
   doShowSanhua(p) {
@@ -385,6 +397,7 @@ class GameEngine {
     p.sanhuaType = sh.type;
     p.sanhuaCards = sanHuaCards(p.hand, sh.type);
     p.sanhuaRevealLocked = true;
+    p.sanhuaOfferPending = false;
     p.matched = true;
     p.actedThisRound = true;
     p.rested = false;
@@ -537,6 +550,7 @@ class GameEngine {
           sanhuaType: null,
           sanhuaCards: [],
           sanhuaRevealLocked: false,
+          sanhuaOfferPending: false,
           lastDelta: 0,
           roundStartPot: buyIn,
           pendingBuyIn: 0,
@@ -639,6 +653,7 @@ class GameEngine {
       p.sanhuaType = null;
       p.sanhuaCards = [];
       p.sanhuaRevealLocked = false;
+      p.sanhuaOfferPending = false;
       p.lastDelta = 0;
       p.roundStartPot = p.pot;
       p.joiningNextRound = false;
@@ -670,7 +685,7 @@ class GameEngine {
 
     s.phase = 'betting1';
     s.betRound = 1;
-    this.resetBettingRound(MANGO_BASE);
+    this.resetBettingRound(Math.max(MANGO_BASE, this.state.potPi || 0));
     s.opener = this.players[order[0]]?.username || null;
     s.toAct = order.map(idx => this.players[idx].username).filter(username => {
       const p = this.getPlayer(username);
@@ -744,6 +759,20 @@ class GameEngine {
     s.betRound = 3;
     s.phase = 'selecting';
     s.toAct = [];
+    // 敲后（或只剩≤1未敲）连发满牌：补一次「成三花后」的摊牌机会
+    this.grantSanhuaOffersAfterAutoDeal();
+  }
+
+  /** 自动发满牌后：未锁且已成三花的存活者可摊（含已敲） */
+  grantSanhuaOffersAfterAutoDeal() {
+    const s = this.state;
+    for (const id of s.activeIds) {
+      const p = this.getPlayer(id);
+      if (!p || p.folded || p.eliminated || p.sanhuaShown || p.sanhuaRevealLocked) continue;
+      if (checkSanHua(p.hand).sanhua) {
+        p.sanhuaOfferPending = true;
+      }
+    }
   }
 
   // ---- Betting actions ----
@@ -774,9 +803,13 @@ class GameEngine {
     const s = this.state;
     amount = normalizeBetAmount(amount);
     if (amount === null) return null;
-    if (amount <= s.currentBet) return null;
-    // 本轮首个抬价需 ≥ minBet；同轮再加注只需高于当前最高喊价
-    if (!s.betStarted && amount < s.minBet) return null;
+    // 本轮首个抬价需 ≥ minBet；同轮再加注至少为当前喊价的两倍
+    if (!s.betStarted) {
+      if (amount < s.minBet) return null;
+      if (amount <= s.currentBet) return null;
+    } else if (amount < s.currentBet * 2) {
+      return null;
+    }
     this.lockSanhuaRevealIfAvailable(p);
     const before = p.pot;
     const delta = this.placeBetToTarget(p, amount);
@@ -910,6 +943,10 @@ class GameEngine {
         if (s.roundHadBet && someoneFolded) {
           s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
           s.beatMangoWinner = winner.username;
+        } else {
+          // 开局若已收过上一次休/揍芒，本局未再触发 → 清零，避免之后每局重复罚芒
+          s.restMangoLevel = 0;
+          s.beatMangoWinner = null;
         }
         return { done: true, reason: 'all_folded', winner: winner.username };
       }
@@ -922,6 +959,8 @@ class GameEngine {
         }
         s.potPi = 0;
       }
+      s.restMangoLevel = 0;
+      s.beatMangoWinner = null;
       return { done: true, reason: 'all_sanhua' };
     }
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 interface ActionBarProps {
   phase: string;
@@ -150,7 +150,8 @@ export function ActionBar({
   onHintChange,
 }: ActionBarProps) {
   const totalStack = (playerChips || 0) + (playerRoundCommitted || 0);
-  const sliderMin = betStarted ? Math.max(1, currentBet + 1) : Math.max(1, minBet);
+  const raiseMin = betStarted ? Math.max(1, currentBet * 2) : Math.max(1, minBet);
+  const sliderMin = raiseMin;
   const sliderMax = Math.max(
     sliderMin,
     totalStack,
@@ -158,14 +159,20 @@ export function ActionBar({
   );
   const effectiveMax = Math.max(sliderMin, totalStack);
   const parsedAmount = Number(raiseAmount || sliderMin);
-  const displayValue = Math.min(
-    effectiveMax,
-    Math.max(sliderMin, Number.isFinite(parsedAmount) ? parsedAmount : sliderMin),
-  );
+  // 超出上限时回到最低额，切勿夹成 totalStack——否则上一局敲完留下的大额
+  // 会在下一局开叫时被「纠正」成全额簸簸，看起来像最低叫分变成了全部筹码
+  const displayValue = !Number.isFinite(parsedAmount)
+    ? sliderMin
+    : parsedAmount < sliderMin
+      ? sliderMin
+      : parsedAmount > effectiveMax
+        ? sliderMin
+        : parsedAmount;
 
   const cannotAffordSee = betStarted
     ? (currentBet > 0 && totalStack < currentBet)
     : (totalStack < Math.max(1, minBet) && totalStack > 0);
+  const canAffordRaise = totalStack >= raiseMin;
   const broke = totalStack <= 0;
   const shortStack = isMyTurn && isBetting && (cannotAffordSee || broke);
 
@@ -184,15 +191,16 @@ export function ActionBar({
   useEffect(() => {
     if (!(isMyTurn && isBetting) || shortStack) return;
     onRaiseAmountChange(String(sliderMin));
-  }, [isMyTurn, isBetting, betStarted, currentBet, minBet, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMyTurn, isBetting, betStarted, currentBet, minBet, phase, sliderMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 保持金额在合法范围内
+  // 仅在金额越界时拉回最低额（与上面重置一致，避免夹成全额簸簸）
   useEffect(() => {
-    if (!(isMyTurn && isBetting)) return;
-    if (displayValue !== parsedAmount || !Number.isFinite(parsedAmount)) {
-      onRaiseAmountChange(String(displayValue));
+    if (!(isMyTurn && isBetting) || shortStack) return;
+    const n = Number(raiseAmount);
+    if (!Number.isFinite(n) || n < sliderMin || n > effectiveMax) {
+      onRaiseAmountChange(String(sliderMin));
     }
-  }, [sliderMin, effectiveMax]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sliderMin, effectiveMax, raiseAmount, isMyTurn, isBetting, shortStack]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setAmount = (value: number) => {
     onRaiseAmountChange(String(Math.min(effectiveMax, Math.max(sliderMin, Math.round(value)))));
@@ -223,9 +231,13 @@ export function ActionBar({
       onHintChange(broke ? '筹码不足，只能丢' : '筹码不足，只能敲或丢');
     } else if (mode === 'split') {
       onHintChange(
-        selectedCount === 2
-          ? '已选两张，点确认（系统自动分头尾）'
-          : '点选两张牌配对',
+        canShowSanhua
+          ? (selectedCount === 2
+            ? '可摊三花，或点确认配牌（配牌即放弃摊）'
+            : '敲后成三花可摊；或点选两张牌配对')
+          : selectedCount === 2
+            ? '已选两张，点确认（系统自动分头尾）'
+            : '点选两张牌配对',
       );
     } else if (phase === 'selecting' && splitDone) {
       onHintChange('已确认配牌，等待其他玩家');
@@ -234,9 +246,9 @@ export function ActionBar({
     } else {
       onHintChange('');
     }
-  }, [mode, selectedCount, splitDone, broke, onHintChange, phase]);
+  }, [mode, selectedCount, splitDone, broke, onHintChange, phase, canShowSanhua]);
 
-  const sanhuaBtn = canShowSanhua && (mode === 'open' || mode === 'raised' || mode === 'short') ? (
+  const sanhuaBtn = canShowSanhua && (mode === 'open' || mode === 'raised' || mode === 'short' || mode === 'split') ? (
     <button className="tea-pill" type="button" onClick={() => onPlayerAction('show_sanhua')}>
       {labels.showSanhua}
     </button>
@@ -271,7 +283,7 @@ export function ActionBar({
               <button className="tea-pill" type="button" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
               <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
             </div>
-            {totalStack > currentBet ? (
+            {canAffordRaise ? (
               <DragCta
                 verb={labels.raise}
                 value={displayValue}
@@ -280,11 +292,7 @@ export function ActionBar({
                 onChange={setAmount}
                 onSubmit={(n) => onPlayerAction('raise', n)}
               />
-            ) : (
-              <button className="tea-cta" type="button" disabled>
-                {labels.raise} <em>—</em>
-              </button>
-            )}
+            ) : null}
             <button className="tea-pill" type="button" onClick={() => onPlayerAction('see')}>{labels.see}</button>
             {sanhuaBtn}
           </div>
@@ -325,6 +333,7 @@ export function ActionBar({
             >
               {labels.confirm}
             </button>
+            {sanhuaBtn}
           </div>
         );
 

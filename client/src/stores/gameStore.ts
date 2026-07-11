@@ -191,6 +191,7 @@ interface GameState {
   setBankerHighlight: (username: string | null) => void;
   setCenterMessage: (msg: string | null) => void;
   addRoundHistory: (record: RoundRecord) => void;
+  setRoundHistory: (records: RoundRecord[]) => void;
   addHistory: (msg: string) => void;
   knockUser: (username: string) => void;
   clearKnockedThisRound: () => void;
@@ -352,7 +353,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!msg) get().clearToast();
     else get().showToast(msg, { sticky: true });
   },
-  addRoundHistory: (record) => set((s) => ({ roundHistory: [...s.roundHistory, record] })),
+  addRoundHistory: (record) => set((s) => {
+    const list = s.roundHistory.filter((r) => r.round !== record.round);
+    return { roundHistory: [...list, record].sort((a, b) => a.round - b.round) };
+  }),
+  setRoundHistory: (records) => set({
+    roundHistory: Array.isArray(records)
+      ? [...records].sort((a, b) => a.round - b.round)
+      : [],
+  }),
   knockUser: (username: string) => set((s) => ({ knockedThisRound: s.knockedThisRound.includes(username) ? s.knockedThisRound : [...s.knockedThisRound, username] })),
   clearKnockedThisRound: () => set({ knockedThisRound: [] }),
   setSettlement: (settlement: SettlementPlayer[] | null, potSplit: PotSplitInfo | null = null) =>

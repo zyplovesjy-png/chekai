@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type MouseEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
@@ -99,7 +99,44 @@ export default function AdminPage() {
     else alert(r.msg || '删除失败');
   };
 
-  const handleAvatar = async (username: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleResetWinrate = async () => {
+    if (!confirm('确定清空胜率排行榜？将清零所有玩家的胜/负/平与手数，净输赢保留。')) return;
+    if (!confirm('再次确认：此操作不可撤销。')) return;
+    setMsg('');
+    const r = await api('/api/admin/stats/reset-winrate', { method: 'POST' });
+    if (r.ok) setMsg('胜率排行榜已清空');
+    else setMsg(r.msg || '清空失败');
+  };
+
+  const handleResetProfit = async () => {
+    if (!confirm('确定清空所有玩家的净输赢数据？胜率样本保留。')) return;
+    if (!confirm('再次确认：此操作不可撤销。')) return;
+    setMsg('');
+    const r = await api('/api/admin/stats/reset-profit', { method: 'POST' });
+    if (r.ok) setMsg('净输赢数据已清空');
+    else setMsg(r.msg || '清空失败');
+  };
+
+  const handleClearAllRecords = async () => {
+    if (!confirm('确定删除全部对局记录？不影响排行累计。')) return;
+    if (!confirm('再次确认：此操作不可撤销。')) return;
+    setMsg('');
+    const r = await api('/api/admin/records/clear', { method: 'POST' });
+    if (r.ok) {
+      setMsg('对局记录已全部删除');
+      loadRecords();
+    } else setMsg(r.msg || '删除失败');
+  };
+
+  const handleDeleteRecord = async (id: number, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`确定删除对局记录 #${id}？`)) return;
+    const r = await api(`/api/admin/records/${id}`, { method: 'DELETE' });
+    if (r.ok) loadRecords();
+    else alert(r.msg || '删除失败');
+  };
+
+  const handleAvatar = async (username: string, e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !token) return;
     const fd = new FormData();
@@ -142,6 +179,17 @@ export default function AdminPage() {
           <div className="lobby-body">
             {tab === 'users' && (
               <>
+                <div className="admin-create">
+                  <div className="room-list-title">数据清理</div>
+                  <button className="btn btn-danger" type="button" onClick={handleResetWinrate} style={{ width: '100%' }}>
+                    清空胜率排行榜
+                  </button>
+                  <p className="admin-hint">清零胜/负/平与手数，不影响净输赢。</p>
+                  <button className="btn btn-danger" type="button" onClick={handleResetProfit} style={{ width: '100%', marginTop: 12 }}>
+                    清空净输赢数据
+                  </button>
+                  <p className="admin-hint">将所有玩家净输赢归零，不影响胜率排行。</p>
+                </div>
                 <div className="admin-create">
                   <div className="room-list-title">新建游戏账号</div>
                   <div className="form-row">
@@ -218,6 +266,11 @@ export default function AdminPage() {
 
             {tab === 'records' && (
               <div className="room-list">
+                <div className="admin-records-toolbar">
+                  <button className="btn btn-danger btn-small" type="button" onClick={handleClearAllRecords}>
+                    清空全部对局记录
+                  </button>
+                </div>
                 {sessions.length === 0 ? (
                   <div className="room-list-empty">暂无对局记录</div>
                 ) : (
@@ -243,6 +296,13 @@ export default function AdminPage() {
                         </span>
                         <span>{s.end_reason || '未结束'}</span>
                       </div>
+                      <button
+                        type="button"
+                        className="btn btn-small btn-danger room-card-disband"
+                        onClick={(e) => handleDeleteRecord(s.id, e)}
+                      >
+                        删除记录
+                      </button>
                     </div>
                   ))
                 )}
