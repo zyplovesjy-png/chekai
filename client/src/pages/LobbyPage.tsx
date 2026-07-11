@@ -4,6 +4,12 @@ import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
 import { usePresence } from '@/hooks/usePresence';
 import { DURATION_OPTIONS } from '@/stores/roomStore';
+import {
+  startGameAssetPreload,
+  pauseGameAssetPreload,
+  subscribeGameAssetPreload,
+  type GameAssetPreloadState,
+} from '@/utils/gameAssetPreload';
 
 type Tab = 'rooms' | 'friends' | 'rank' | 'me';
 
@@ -55,11 +61,24 @@ export default function LobbyPage() {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [profileMsg, setProfileMsg] = useState('');
+  const [assetPreload, setAssetPreload] = useState<GameAssetPreloadState>(() => ({
+    progress: 0,
+    ready: false,
+    loading: false,
+  }));
 
   usePresence((data) => {
     setOverview({ onlineCount: data.onlineCount, roomCount: data.roomCount });
     if (data.rooms) setRooms(data.rooms);
   });
+
+  useEffect(() => {
+    const unsub = subscribeGameAssetPreload(setAssetPreload);
+    startGameAssetPreload();
+    return () => {
+      unsub();
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.role === 'admin') navigate('/admin', { replace: true });
@@ -154,12 +173,17 @@ export default function LobbyPage() {
     loadOverview();
   };
 
+  const goToRoom = (code: string) => {
+    pauseGameAssetPreload();
+    navigate(`/room/${code}`);
+  };
+
   const handleCreate = async () => {
     const r = await api('/api/rooms/create', {
       method: 'POST',
       body: JSON.stringify({ name: createName, durationMinutes: createDuration, minBuyIn: createMinBuyIn }),
     });
-    if (r.ok) navigate(`/room/${r.room.code}`);
+    if (r.ok) goToRoom(r.room.code);
     else alert(r.msg || '创建失败');
   };
 
@@ -169,7 +193,7 @@ export default function LobbyPage() {
       body: JSON.stringify({ code }),
     });
     if (r.ok || r.msg === '你已在该房间内') {
-      navigate(`/room/${code}`);
+      goToRoom(code);
     } else {
       alert(r.msg || '加入失败');
     }
@@ -185,7 +209,7 @@ export default function LobbyPage() {
       method: 'POST',
       body: JSON.stringify({ code: joinCode }),
     });
-    if (r.ok) navigate(`/room/${r.room.code}`);
+    if (r.ok) goToRoom(r.room.code);
     else setJoinError(r.msg || '加入失败');
   };
 
@@ -274,6 +298,21 @@ export default function LobbyPage() {
                 <div className="lobby-actions">
                   <button className="btn btn-primary" onClick={() => setShowCreate(true)}>创建房间</button>
                   <button className="btn" onClick={() => setShowJoin(true)}>加入房间</button>
+                </div>
+                <div className="lobby-asset-preload" aria-live="polite">
+                  {assetPreload.ready ? (
+                    <div className="lobby-asset-ready">资源已就绪</div>
+                  ) : (
+                    <>
+                      <div className="lobby-asset-label">静态资源加载中</div>
+                      <div className="lobby-asset-track">
+                        <div
+                          className="lobby-asset-fill"
+                          style={{ width: `${Math.round(assetPreload.progress * 100)}%` }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="room-list-section">
                   <div className="room-list-title">房间列表</div>

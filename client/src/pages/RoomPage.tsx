@@ -17,6 +17,7 @@ import { TURN_TIME_SECONDS } from './room/constants';
 import { cardBackUrl } from './room/cardAssets';
 import { isSfxEnabled, toggleSfxEnabled } from './room/sounds';
 import { RoomChromeIcons } from '@/components/AppChromeIcons';
+import { pauseGameAssetPreload } from '@/utils/gameAssetPreload';
 
 /** 簸簸 ≤ 房间最少带入分时，在数字旁提示「点击加簸」 */
 const DEFAULT_MIN_BUYIN = 100;
@@ -31,6 +32,10 @@ export default function RoomPage() {
   const { room, setRoom } = useRoomStore();
   const pixiEnabled = import.meta.env.VITE_PIXI_TABLE === '1';
   const [sfxOn, setSfxOn] = useState(() => isSfxEnabled());
+
+  useEffect(() => {
+    pauseGameAssetPreload();
+  }, []);
 
   useEffect(() => {
     const sync = () => setSfxOn(isSfxEnabled());

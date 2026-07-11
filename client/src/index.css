@@ -249,8 +249,39 @@ html, body {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
 }
-.lobby-actions { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; }
+.lobby-actions { display: flex; gap: 12px; justify-content: center; margin-bottom: 16px; }
 .lobby-actions .btn { flex: 1; padding: 12px 0; font-size: 16px; }
+.lobby-asset-preload {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.lobby-asset-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.lobby-asset-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.lobby-asset-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #b8942e, var(--gold));
+  transition: width 0.25s ease;
+}
+.lobby-asset-ready {
+  font-size: 12px;
+  color: var(--gold);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
 .room-list-section { border-top: 1px solid rgba(212, 175, 55, 0.15); padding-top: 16px; }
 .room-list-title { font-size: 14px; color: var(--gold); font-weight: 600; margin-bottom: 12px; }
 .room-list { display: flex; flex-direction: column; gap: 8px; }
