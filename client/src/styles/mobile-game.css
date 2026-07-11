@@ -1,21 +1,73 @@
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --room-max-width: 430px;
+  --design-w: 393px;
+  --app-max-width: 100%;
+  --room-max-width: 100%;
   --card-w: 44px;
   --card-h: 62px;
 }
 
-/* ========== 响应式（大厅等非房间页） ========== */
-@media (max-width: 600px) {
-  .title { font-size: 18px; letter-spacing: 4px; }
-  .topbar { padding: 10px 12px; }
-  .btn { padding: 7px 14px; font-size: 13px; min-width: 70px; }
-  .hint { font-size: 11px; }
+/* 茶馆房间铺满 #root，由内部 grid 自适应高度 */
+.room-page.tea-room {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  padding-top: 0;
 }
 
-/* 茶馆房间由 room.css .tea-room 接管，此处不再覆盖布局 */
-.room-page.tea-room {
-  max-width: var(--room-max-width);
-  padding-top: 0;
+/* —— 全屏 / 安装到主屏幕 —— */
+.app-chrome-bar {
+  position: absolute;
+  z-index: 3000;
+  right: 8px;
+  bottom: calc(10px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+.app-chrome-bar > * { pointer-events: auto; }
+.app-chrome-btn {
+  min-width: auto;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border-color: rgba(212, 175, 55, 0.45);
+  backdrop-filter: blur(6px);
+  color: var(--gold);
+}
+.app-chrome-btn:hover:not(:disabled) {
+  background: rgba(212, 175, 55, 0.2);
+}
+.app-install-tip {
+  position: absolute;
+  z-index: 3001;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + var(--safe-bottom));
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(10, 28, 20, 0.94);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.app-install-tip strong { color: var(--gold); }
+.app-install-tip .tip-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.app-install-tip .tip-actions .btn { min-width: auto; padding: 6px 14px; font-size: 13px; }
+
+/* 已是独立窗口 / 全屏时隐藏干扰提示条占位由组件控制 */
+:root.standalone-app .app-chrome-bar .app-chrome-install {
+  display: none;
 }

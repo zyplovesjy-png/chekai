@@ -5,12 +5,14 @@ export interface User {
   username: string;
   nickname: string;
   avatar_path?: string;
+  role?: 'admin' | 'player';
 }
 
 interface AuthState {
   token: string | null;
   user: User | null;
   setAuth: (token: string, user: User) => void;
+  setUser: (user: Partial<User>) => void;
   clear: () => void;
 }
 
@@ -20,6 +22,8 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       user: null,
       setAuth: (token, user) => set({ token, user }),
+      setUser: (partial) =>
+        set((s) => (s.user ? { user: { ...s.user, ...partial } } : {})),
       clear: () => set({ token: null, user: null }),
     }),
     {

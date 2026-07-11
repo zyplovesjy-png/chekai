@@ -33,6 +33,8 @@ const REASON_CN = {
   compare: '比牌结算',
   players: '在座不足两人',
   round_limit: '达到总局数上限',
+  time_limit: '到达时长上限',
+  host_end: '房主提前结束',
   buyin_exit: '破产选择结算离场',
   disbanded: '房间解散',
 };
@@ -179,7 +181,7 @@ class GameLogger {
       `| --- | --- |`,
       `| 房间名 | ${this.room.name || '—'} |`,
       `| 房主 | ${this._name(this.room.host)} |`,
-      `| 总局数上限 | ${this.room.roundLimit ?? '—'} |`,
+      `| 对局时长 | ${this.room.durationMinutes ? `${this.room.durationMinutes} 分钟` : '—'} |`,
       `| 最低带入 | ${this.room.minBuyIn ?? '—'} |`,
       `| 开始时间 | ${localTime()} |`,
       '',
@@ -195,7 +197,8 @@ class GameLogger {
       host: this.room.host,
       creator: this.room.creator,
       name: this.room.name,
-      roundLimit: this.room.roundLimit,
+      durationMinutes: this.room.durationMinutes,
+      endsAt: this.room.endsAt || null,
       minBuyIn: this.room.minBuyIn,
       reportPath: this.reportPath,
       debugPath: this.debugPath,
@@ -612,6 +615,24 @@ class GameLogger {
     this._appendReport(`- ${localTime()} ${this._name(username)} 加簸 ${amount}${state ? ' · ' + state : ''}${why}\n`);
   }
 
+  logExtendTime(minutes, endsAt) {
+    const endText = endsAt ? new Date(endsAt).toLocaleString() : '—';
+    this._appendReport(`- ${localTime()} 房主加时 +${minutes} 分钟，预计结束 ${endText}\n`);
+    this._debug('extend_time', { minutes, endsAt, extendedMinutes: this.room.extendedMinutes || 0 });
+  }
+
+  logPause(paused) {
+    this._appendReport(`- ${localTime()} 房主${paused ? '暂停' : '恢复'}对局\n`);
+    this._debug(paused ? 'game_pause' : 'game_resume', {
+      endsAt: this.room.endsAt || null,
+    });
+  }
+
+  logHostEndAfterHand() {
+    this._appendReport(`- ${localTime()} 房主请求：本局结束后结算\n`);
+    this._debug('host_end_after_hand', {});
+  }
+
   logBuyInDecisionStart(usernames = []) {
     this._debug('broke_decision_start', { players: usernames });
     const names = usernames.map(u => this._name(u)).join('、');
@@ -632,21 +653,33 @@ class GameLogger {
     this._appendReport(`- ${localTime()} ${this._name(username)} ${map[action] || action}${pot}\n`);
   }
 
-  logSessionEnd(settlement, reason) {
+  logSessionEnd(settlement, reason, potSplit = null) {
     const sumDelta = (settlement || []).reduce((s, p) => s + (p.delta || 0), 0);
     const check = { sumDelta, ok: sumDelta === 0 };
-    this._debug('session_end', { reason, settlement: settlement || [], chipCheck: check });
+    this._debug('session_end', { reason, settlement: settlement || [], potSplit, chipCheck: check });
 
     (settlement || []).forEach(p => this._name(p.username, p.nickname));
     const rows = (settlement || []).map(p =>
       `| ${this._name(p.username, p.nickname)} | ${p.initial} | ${p.final} | ${signed(p.delta)} |`
     );
+    const potLines = [];
+    if (potSplit && potSplit.pot > 0) {
+      const shareBits = Object.entries(potSplit.shares || {})
+        .filter(([, v]) => v > 0)
+        .map(([u, v]) => `${this._name(u)} +${v}`)
+        .join('，');
+      potLines.push(
+        `- 终局底池平分：${potSplit.pot}（在座 ${potSplit.recipientCount} 人各 ${potSplit.base}，余数 ${potSplit.remainder} 归庄家${potSplit.bankerUsername ? this._name(potSplit.bankerUsername) : ''}）`,
+        shareBits ? `- 分配明细：${shareBits}` : '',
+      );
+    }
     this._appendReport([
       '',
       '## 整场结算',
       '',
       `- 结束原因：${REASON_CN[reason] || reason}`,
       `- 结束时间：${localTime()}`,
+      ...potLines.filter(Boolean),
       `- 输赢合计：${signed(sumDelta)} ${check.ok ? '（守恒通过）' : '（异常 ⚠️）'}`,
       '',
       '| 玩家 | 总带入 | 最终 | 输赢 |',

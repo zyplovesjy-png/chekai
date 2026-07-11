@@ -1,37 +1,25 @@
 ﻿import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
-import { useRoomStore } from '@/stores/roomStore';
-import type { Card } from '@/stores/gameStore';
+import { useRoomStore, EXTEND_OPTIONS, formatCountdown, formatDurationLabel } from '@/stores/roomStore';
 import { isRealCompare } from '@/stores/gameStore';
 import { useApi } from '@/hooks/useApi';
-import { CardView } from './room/components/CardView';
 import { MyHand } from './room/components/MyHand';
 import { PlayerSeat, Avatar, getTimerUrgency } from './room/components/PlayerSeat';
 import { PublicCards } from './room/components/PublicCards';
 import { SeatBetMarkers } from './room/components/SeatBetMarkers';
 import { useRoomGameController } from './room/useRoomGameController';
+import { HistoryDrawer } from './room/components/HistoryDrawer';
 import { ActionBar } from './room/components/ActionBar';
 import { AnimatedLayer } from './room/components/AnimatedLayer';
 import { PixiTableLayer } from './room/pixi/PixiTableLayer';
 import { TURN_TIME_SECONDS } from './room/constants';
 import { unlockAudio } from './room/sounds';
 import { cardBackUrl } from './room/cardAssets';
+import { RoomChromeIcons } from '@/components/AppChromeIcons';
 
 /** 簸簸 ≤ 房间最少带入分时，在数字旁提示「点击加簸」 */
 const DEFAULT_MIN_BUYIN = 100;
-
-/* ========== 历史卡片组件（带发牌顺序标记） ========== */
-function HistoryCard({ card, dealLabel }: { card: Card; dealLabel?: string }) {
-  return (
-    <div className="history-card-wrap">
-      <div className="history-card-slot">
-        <CardView card={card} size="small" />
-      </div>
-      {dealLabel && <span className="history-deal-badge">{dealLabel}</span>}
-    </div>
-  );
-}
 
 /* ========== 主页面 ========== */
 export default function RoomPage() {
@@ -57,17 +45,17 @@ export default function RoomPage() {
     game,
     showBuyIn,
     setShowBuyIn,
+    showSeatChange,
+    setShowSeatChange,
+    pendingSeatIdx,
     buyInAmount,
     setBuyInAmount,
     showMenu,
     setShowMenu,
-    showHistory,
-    setShowHistory,
-    viewingRound,
-    setViewingRound,
     raiseAmount,
     setRaiseAmount,
     turnTimer,
+    turnTimerMax,
     dealAnim,
     chipAnim,
     isDealing,
@@ -76,14 +64,20 @@ export default function RoomPage() {
     getAvatar,
     handleSit,
     handleSitConfirm,
+    handleSeatChangeConfirm,
+    emptySeatAction,
     handleStandUp,
     handleReady,
     handleStartGame,
-    handleDisband,
     handleLeaveRoom,
     handleAction,
     handleCardClick,
     handleConfirmSplit,
+    handleExtendTurn,
+    handleExtendTime,
+    handlePauseGame,
+    handleResumeGame,
+    handleHostEndAfterHand,
     allReady,
     spectators,
     isMyTurn,
@@ -98,7 +92,21 @@ export default function RoomPage() {
 
   const [showAddBuyIn, setShowAddBuyIn] = useState(false);
   const [showSpectators, setShowSpectators] = useState(false);
+  const [showExtendTime, setShowExtendTime] = useState(false);
   const [actionHint, setActionHint] = useState('');
+  const [nowTs, setNowTs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!room?.gameStarted || !room?.endsAt || room?.paused) return;
+    const id = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [room?.gameStarted, room?.endsAt, room?.paused]);
+
+  const sessionRemainLabel = room?.paused
+    ? '已暂停'
+    : room?.gameStarted && room?.endsAt
+      ? formatCountdown(room.endsAt, nowTs)
+      : formatDurationLabel(room?.durationMinutes);
 
   const myPlayer = game.players.find((player) => player.username === myUsername);
   const mySeat = room?.seats.find((seat) => seat?.username === myUsername) ?? null;
@@ -194,6 +202,7 @@ export default function RoomPage() {
         gameStarted={!!room?.gameStarted}
         avatarPath={getAvatar(seat?.username)}
         timer={(!isDealing && isMyTurnLocal) ? turnTimer : undefined}
+        timerMax={turnTimerMax}
         onSit={handleSit}
         onReady={handleReady}
         isBanker={isBanker}
@@ -202,6 +211,7 @@ export default function RoomPage() {
         isDisconnected={isDisconnected}
         isKnocked={isKnocked}
         brokeStatus={brokeStatus}
+        emptySeatAction={emptySeatAction}
       />
     );
   };
@@ -213,9 +223,9 @@ export default function RoomPage() {
   const closeMenu = () => setShowMenu(false);
 
   const showSelfTimer = !isDealing && ((isMyTurn && isBetting) || (isMyTurn && game.phase === 'selecting'));
-  const selfUrgency = showSelfTimer ? getTimerUrgency(turnTimer) : '';
-  const selfTimerRatio = Math.max(0, Math.min(100, ((turnTimer ?? 0) / TURN_TIME_SECONDS) * 100));
-  const showActionOverlay = !isDealing && (
+  const selfUrgency = showSelfTimer ? getTimerUrgency(turnTimer, turnTimerMax) : '';
+  const selfTimerRatio = Math.max(0, Math.min(100, ((turnTimer ?? 0) / Math.max(turnTimerMax, 1)) * 100));
+  const showActionOverlay = !isDealing && !room?.paused && (
     (game.phase === 'selecting' && !game.mySplit)
     || (isMyTurn && isBetting)
   );
@@ -226,11 +236,16 @@ export default function RoomPage() {
         <div className="tea-brand">
           <span className="tea-code">{room?.code || code || '--'}</span>
           <span className="tea-meta">
-            {game.gameStarted ? game.round : 0}/{room?.roundLimit || 0}局
+            {game.gameStarted || room?.gameStarted
+              ? `第${game.gameStarted ? game.round : (room?.gameRound || 0)}局 · ${sessionRemainLabel}`
+              : sessionRemainLabel}
           </span>
-          <span className="tea-phase" aria-live="polite">{phaseLabel}</span>
+          <span className="tea-phase" aria-live="polite">
+            {room?.paused ? '已暂停' : room?.endAfterHand ? `${phaseLabel} · 本局后结算` : phaseLabel}
+          </span>
         </div>
         <div className="tea-top-tools">
+          <RoomChromeIcons />
           <button className="tea-menu-btn" type="button" aria-label="菜单" onClick={openMenu}>☰</button>
         </div>
       </header>
@@ -279,6 +294,10 @@ export default function RoomPage() {
           room={room}
           visualSeats={visualSeats}
           gameStarted={!!game.gameStarted}
+          hideForCompare={
+            game.phase === 'comparing'
+            || (game.phase === 'done' && realCompare)
+          }
         />
 
         <AnimatedLayer
@@ -291,25 +310,35 @@ export default function RoomPage() {
 
       {/* 底部 HUD */}
       <footer className="tea-hud">
-        {showSelfTimer && (
-          <div className={`self-timer show${selfUrgency ? ` ${selfUrgency}` : ''}`}>
-            <span className="label">{turnTimer ?? ''}</span>
-            <div className="track">
-              <div className="fill" style={{ width: `${selfTimerRatio}%` }} />
-            </div>
-            <span className="tip">请操作</span>
+        <div
+          className={`self-timer${showSelfTimer ? ' show' : ''}${selfUrgency ? ` ${selfUrgency}` : ''}`}
+          aria-hidden={!showSelfTimer}
+        >
+          <span className="label">{showSelfTimer ? (turnTimer ?? '') : '\u00a0'}</span>
+          <div className="track">
+            <div className="fill" style={{ width: `${showSelfTimer ? selfTimerRatio : 0}%` }} />
           </div>
-        )}
+          <button
+            type="button"
+            className="extend-turn-btn"
+            onClick={handleExtendTurn}
+            tabIndex={showSelfTimer ? 0 : -1}
+            disabled={!showSelfTimer}
+            aria-hidden={!showSelfTimer}
+          >
+            +60s
+          </button>
+          <span className="tip">请操作</span>
+        </div>
 
-        {game.messageFeed.length > 0 && (
-          <div className="msg-feed" aria-live="polite">
-            {game.messageFeed.map((item) => (
-              <div key={item.id} className={`msg-feed-item kind-${item.kind}`}>
-                {item.text}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* 绝对定位叠在 HUD 上方；始终挂载以稳住 aria-live 区域 */}
+        <div className="msg-feed" aria-live="polite">
+          {game.messageFeed.map((item) => (
+            <div key={item.id} className={`msg-feed-item kind-${item.kind}`}>
+              {item.text}
+            </div>
+          ))}
+        </div>
 
         <div className="self-row">
           <div className={`self-id${showSelfTimer ? ' my-turn' : ''}${selfUrgency ? ` ${selfUrgency}` : ''}`}>
@@ -319,6 +348,7 @@ export default function RoomPage() {
                 avatarPath={getAvatar(myUsername)}
                 size={28}
                 timer={showSelfTimer ? turnTimer : undefined}
+                timerMax={turnTimerMax}
                 isKnocked={!!myPlayer && !myPlayer.folded && game.knockedThisRound.includes(myUsername)}
                 urgency={selfUrgency}
               />
@@ -355,8 +385,8 @@ export default function RoomPage() {
         />
 
         <ActionBar
-          phase={isDealing ? 'dealing' : game.phase}
-          isMyTurn={!isDealing && isMyTurn}
+          phase={room?.paused ? 'idle' : (isDealing ? 'dealing' : game.phase)}
+          isMyTurn={!isDealing && !room?.paused && isMyTurn}
           isBetting={isBetting}
           betStarted={betStarted}
           currentBet={game.currentBet}
@@ -364,7 +394,7 @@ export default function RoomPage() {
           maxBet={game.maxBet}
           playerChips={myPlayer?.pot ?? 0}
           playerRoundCommitted={myPlayer?.committed ?? myPlayer?.roundCommitted ?? 0}
-          canShowSanhua={!!myPlayer?.canShowSanhua}
+          canShowSanhua={!!myPlayer?.canShowSanhua && !room?.paused}
           selectedCount={game.selected.length}
           splitConfirmed={!!game.mySplit && game.phase === 'selecting'}
           canHostStart={!!room && isHostUser && !room.gameStarted && allReady}
@@ -384,7 +414,7 @@ export default function RoomPage() {
         />
       </footer>
 
-      {/* 菜单弹层：观战 / 历史 / 加簸 / 返回 */}
+      {/* 菜单弹层：观战 / 加簸 / 返回 */}
       {showMenu && (
         <div className="menu-backdrop open" onClick={closeMenu} role="presentation">
           <div className="menu-sheet" onClick={(e) => e.stopPropagation()} role="menu">
@@ -395,13 +425,6 @@ export default function RoomPage() {
               onClick={() => { closeMenu(); setShowSpectators(true); }}
             >
               观战席 <span>{spectators.length}</span>
-            </button>
-            <button
-              className="menu-item"
-              type="button"
-              onClick={() => { closeMenu(); setShowHistory(true); setViewingRound(-1); }}
-            >
-              对局记录 <span>{game.roundHistory.length}</span>
             </button>
             {room?.seats.some((s) => s?.username === myUsername) && (
               <button
@@ -417,9 +440,45 @@ export default function RoomPage() {
                 离开座位
               </button>
             )}
-            {room && myUsername === room.host && (
-              <button className="menu-item danger" type="button" onClick={() => { handleDisband(); closeMenu(); }}>
-                解散房间
+            {room && myUsername === room.host && room.gameStarted && (
+              <button
+                className="menu-item"
+                type="button"
+                onClick={() => {
+                  if (room.paused) handleResumeGame();
+                  else handlePauseGame();
+                  closeMenu();
+                }}
+              >
+                {room.paused ? '恢复游戏' : '暂停游戏'}
+                <span>{room.paused ? '继续对局' : '冻结计时'}</span>
+              </button>
+            )}
+            {room && myUsername === room.host && room.gameStarted && !room.endAfterHand && (
+              <button
+                className="menu-item danger"
+                type="button"
+                onClick={() => {
+                  if (!confirm('确认本局结束后结算整场对局？')) return;
+                  handleHostEndAfterHand();
+                  closeMenu();
+                }}
+              >
+                本局后结算 <span>提前结束</span>
+              </button>
+            )}
+            {room && myUsername === room.host && room.gameStarted && room.endAfterHand && (
+              <div className="menu-item" style={{ opacity: 0.7, pointerEvents: 'none' }}>
+                已预约结算 <span>本局结束后</span>
+              </div>
+            )}
+            {room && myUsername === room.host && room.gameStarted && (
+              <button
+                className="menu-item"
+                type="button"
+                onClick={() => { closeMenu(); setShowExtendTime(true); }}
+              >
+                加时 <span>延长对局</span>
               </button>
             )}
             <button className="menu-item danger" type="button" onClick={() => { handleLeaveRoom(); closeMenu(); }}>
@@ -451,82 +510,7 @@ export default function RoomPage() {
         </div>
       )}
 
-      {showHistory && (
-        game.roundHistory.length > 0 ? (() => {
-        const defaultIdx = game.roundHistory.length >= 2 ? game.roundHistory.length - 2 : 0;
-        const idx = viewingRound === -1 ? defaultIdx : viewingRound;
-        const rec = game.roundHistory[idx];
-        if (!rec) return null;
-        return (
-          <div className="history-panel">
-            <div className="history-header">
-              <button className="btn-sm" disabled={idx <= 0} onClick={() => setViewingRound(idx - 1)}>‹ 上一局</button>
-              <span className="history-title">第 {rec.round} 局记录</span>
-              <button className="btn-sm" disabled={idx >= game.roundHistory.length - 1} onClick={() => setViewingRound(idx + 1)}>下一局 ›</button>
-            </div>
-            <div className="history-body">
-              {rec.players.map((p) => (
-                <div key={p.username} className={`history-player${p.lastDelta > 0 ? ' winner' : p.lastDelta < 0 ? ' loser' : ''}`}>
-                  <div className="history-player-name">
-                    {p.nickname}
-                    {p.username === rec.bankerUsername && <span className="history-banker-tag">庄</span>}
-                    {p.folded && <span className="history-fold-tag">甩</span>}
-                  </div>
-                  <div className="history-cards">
-                    {(() => {
-                      const cards = p.hand || [];
-                      if (cards.length === 0) {
-                        return <div className="history-fold-only">无牌</div>;
-                      }
-                      // 有配牌：头尾分组；否则按发牌顺序一排展示全部
-                      if (p.split?.head?.length || p.split?.tail?.length) {
-                        const headCards = p.split.head?.length ? p.split.head : cards.slice(0, 2);
-                        const tailCards = p.split.tail?.length ? p.split.tail : cards.slice(2);
-                        return (
-                          <>
-                            <div className="history-card-group">
-                              <span className="history-group-label">头</span>
-                              {headCards.map((c, i) => <HistoryCard key={`h${i}`} card={c} />)}
-                            </div>
-                            <div className="history-card-divider" />
-                            <div className="history-card-group">
-                              <span className="history-group-label">尾</span>
-                              {tailCards.map((c, i) => <HistoryCard key={`t${i}`} card={c} />)}
-                            </div>
-                          </>
-                        );
-                      }
-                      return (
-                        <div className="history-card-group">
-                          {cards.map((c, i) => (
-                            <HistoryCard key={`c${i}`} card={c} dealLabel={String(i + 1)} />
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="history-delta" title="本局净输赢 = 局末簸簸 − 局初簸簸（含底注/芒果/弃牌进池/比牌）">
-                    <span className="history-delta-label">净</span>
-                    {p.lastDelta > 0 ? `+${p.lastDelta}` : p.lastDelta < 0 ? `${p.lastDelta}` : '0'}
-                    {(p.wins > 0 || p.losses > 0) && (
-                      <span className="history-wl"> · {p.wins}胜{p.losses}负</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button className="btn-sm history-close" onClick={() => setShowHistory(false)}>关闭</button>
-          </div>
-        );
-      })() : (
-        <div className="history-panel history-panel-empty">
-          <div className="history-header">
-            <span className="history-title">对局记录</span>
-          </div>
-          <div className="history-empty-body">暂无对局记录</div>
-          <button className="btn-sm history-close" onClick={() => setShowHistory(false)}>关闭</button>
-        </div>
-      ))}
+      <HistoryDrawer roundHistory={game.roundHistory} />
 
       {buyInDecision && myBrokePending && (
         <div className="modal-overlay">
@@ -568,17 +552,37 @@ export default function RoomPage() {
         <div className="modal-overlay" onClick={handleLeaveRoom}>
           <div className="modal-content settlement-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">游戏结算</div>
+            {game.potSplit && game.potSplit.pot > 0 && (
+              <div className="settlement-pot-split">
+                <div className="settlement-pot-split-title">终局底池平分退回</div>
+                <p className="settlement-pot-split-desc">
+                  遗留底池 {game.potSplit.pot} 分已按在座人数均分
+                  {game.potSplit.recipientCount
+                    ? `（${game.potSplit.recipientCount} 人各 ${game.potSplit.base ?? Math.floor(game.potSplit.pot / game.potSplit.recipientCount)}`
+                      + (game.potSplit.remainder ? `，余数 ${game.potSplit.remainder} 归庄家` : '')
+                      + '）'
+                    : ''}
+                  。常见于最后一手全员休、作废局底注/芒果未带入下一手时。
+                </p>
+              </div>
+            )}
             <div className="settlement-body">
-              {game.settlement.map((p) => (
-                <div key={p.username} className={`settlement-row${p.delta > 0 ? ' winner' : p.delta < 0 ? ' loser' : ''}`}>
-                  <span className="settlement-name">{p.nickname}</span>
-                  <span className="settlement-score">初始: {p.initial}</span>
-                  <span className="settlement-score">剩余: {p.final}</span>
-                  <span className="settlement-delta">
-                    {p.delta > 0 ? `+${p.delta}` : p.delta < 0 ? `${p.delta}` : '平0'}
-                  </span>
-                </div>
-              ))}
+              {game.settlement.map((p) => {
+                const refund = game.potSplit?.shares?.[p.username] || 0;
+                return (
+                  <div key={p.username} className={`settlement-row${p.delta > 0 ? ' winner' : p.delta < 0 ? ' loser' : ''}`}>
+                    <span className="settlement-name">
+                      {p.nickname}
+                      {refund > 0 && <span className="settlement-refund-tag">退回 +{refund}</span>}
+                    </span>
+                    <span className="settlement-score">初始: {p.initial}</span>
+                    <span className="settlement-score">剩余: {p.final}</span>
+                    <span className="settlement-delta">
+                      {p.delta > 0 ? `+${p.delta}` : p.delta < 0 ? `${p.delta}` : '平0'}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
             <div className="modal-actions">
               <button className="btn btn-primary" onClick={handleLeaveRoom}>返回大厅</button>
@@ -591,7 +595,11 @@ export default function RoomPage() {
         <div className="modal-overlay" onClick={() => setShowBuyIn(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">买入积分</div>
-            <p className="modal-desc">请选择本局买入分</p>
+            <p className="modal-desc">
+              {room.gameStarted
+                ? '对局已开始：确认后入座。若本手进行中则先观战，下一局起正式打牌。'
+                : '请选择本局买入分'}
+            </p>
             <div className="buyin-options">
               {[room.minBuyIn || 100, (room.minBuyIn || 100) * 2, (room.minBuyIn || 100) * 3, (room.minBuyIn || 100) * 5].map((amount) => (
                 <label key={amount} className="buyin-option">
@@ -603,6 +611,51 @@ export default function RoomPage() {
             <div className="modal-actions">
               <button className="btn btn-primary" onClick={handleSitConfirm}>确认</button>
               <button className="btn" onClick={() => setShowBuyIn(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSeatChange && room && pendingSeatIdx != null && (
+        <div className="modal-overlay" onClick={() => { setShowSeatChange(false); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">换到此座</div>
+            <p className="modal-desc">
+              确认换到 {pendingSeatIdx + 1} 号座？簸数不变，不需要重新买入。
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-primary" onClick={handleSeatChangeConfirm}>确认换座</button>
+              <button className="btn" onClick={() => setShowSeatChange(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExtendTime && room && (
+        <div className="modal-overlay" onClick={() => setShowExtendTime(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">延长对局</div>
+            <p className="modal-desc">
+              当前剩余 {formatCountdown(room.endsAt, nowTs)}。加时后本手打完仍可继续开下一局。
+            </p>
+            <div className="buyin-options">
+              {EXTEND_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className="btn"
+                  style={{ width: '100%', marginBottom: 8 }}
+                  onClick={() => {
+                    handleExtendTime(opt.value);
+                    setShowExtendTime(false);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setShowExtendTime(false)}>取消</button>
             </div>
           </div>
         </div>

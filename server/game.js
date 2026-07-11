@@ -913,7 +913,16 @@ class GameEngine {
         }
         return { done: true, reason: 'all_folded', winner: winner.username };
       }
-      return { done: true, reason: 'all_folded' };
+      // 无人留下（例如全员亮三花）：底池退回庄家，避免筹码卡在 potPi
+      if (s.potPi > 0) {
+        const banker = this.players[s.bankerIdx];
+        if (banker) {
+          banker.pot += s.potPi;
+          banker.lastDelta += s.potPi;
+        }
+        s.potPi = 0;
+      }
+      return { done: true, reason: 'all_sanhua' };
     }
 
     if (stillInPlayers.every(p => p.allIn)) {
@@ -1346,6 +1355,7 @@ class GameEngine {
           sanhuaType: p.sanhuaType,
           canShowSanhua: this.canShowSanhua(p),
           folded: p.folded,
+          rested: p.rested,
           eliminated: p.eliminated,
           handCount: p.hand.length,
           lastDelta: p.lastDelta,

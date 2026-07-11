@@ -1,5 +1,5 @@
 /**
- * 扯旋 32 张标准扑克映射 → htdebeer/SVG-cards 资源
+ * 扯开 32 张标准扑克映射 → htdebeer/SVG-cards 资源
  * License: LGPL-2.1（见 /game/cards/LICENSE-LGPL.txt）
  */
 import type { Card } from '@/stores/gameStore';

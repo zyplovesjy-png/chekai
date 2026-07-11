@@ -15,6 +15,7 @@ export interface TableGeometry {
   deck: Point2D;
   pot: Point2D;
   seats: Point2D[];
+  bets: Point2D[];
 }
 
 export interface DealAnimationEvent {

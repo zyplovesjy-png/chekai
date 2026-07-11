@@ -11,7 +11,7 @@ interface PublicCardsProps {
   phase: string;
   /** 是否为真正扯牌比大小（有配牌） */
   realCompare?: boolean;
-  /** 比牌排布：two=两排(默认) / one=一排四张 */
+  /** 比牌排布：two=上下两排(上头下尾) / one=一排四张 */
   compareLayout?: 'two' | 'one';
 }
 
@@ -19,7 +19,7 @@ interface PublicCardsProps {
  * 他人明牌：
  * - 只显示已发出的第 3/4 张（服务端 publicCards = hand.slice(2)，除非真正比牌）
  * - 弃牌 / 全员弃牌结束：不展示暗牌；无明牌则完全不渲染
- * - 真正比牌（有配牌）：展示头尾 4 张
+ * - 真正比牌（有配牌）：展示头尾 4 张，默认上下两排（上头下尾）
  */
 export function PublicCards({
   players,

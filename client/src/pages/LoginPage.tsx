@@ -2,19 +2,26 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useApi } from '@/hooks/useApi';
+import { consumeForceLogoutMessage } from '@/utils/sessionGuard';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const api = useApi();
-  const { token, setAuth } = useAuthStore();
+  const { token, user, setAuth } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (token) navigate('/lobby', { replace: true });
-  }, [token, navigate]);
+    const kicked = consumeForceLogoutMessage();
+    if (kicked) setError(kicked);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !user) return;
+    navigate(user.role === 'admin' ? '/admin' : '/lobby', { replace: true });
+  }, [token, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +34,7 @@ export default function LoginPage() {
     setLoading(false);
     if (r.ok) {
       setAuth(r.token, r.user);
-      navigate('/lobby', { replace: true });
+      navigate(r.user?.role === 'admin' ? '/admin' : '/lobby', { replace: true });
     } else {
       setError(r.msg || '登录失败');
     }

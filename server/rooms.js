@@ -8,6 +8,25 @@ const roomsByCode = new Map();
 const SEAT_IDS = ['bottom-0','right-1','right-0','top-1','top-0','left-1','left-0','bottom-1'];
 
 const DEFAULT_BUY_IN = 100;
+const ALLOWED_DURATIONS = [30, 60, 120, 180, 240];
+const ALLOWED_EXTEND = [15, 30, 60];
+
+function normalizeDurationMinutes(value, fallback = 120) {
+  const n = Number(value);
+  if (ALLOWED_DURATIONS.includes(n)) return n;
+  return fallback;
+}
+
+function formatRemainText(endsAt) {
+  if (!endsAt) return '';
+  const remainMs = Math.max(0, endsAt - Date.now());
+  const totalSec = Math.floor(remainMs / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (h > 0) return `剩余 ${h}小时${m}分`;
+  if (m > 0) return `剩余 ${m}分`;
+  return '剩余不足1分';
+}
 
 // 生成6位数字房间号
 function genRoomCode() {
@@ -20,18 +39,26 @@ function genRoomCode() {
 // 创建房间
 function createRoom(host, options = {}) {
   const code = genRoomCode();
+  const durationMinutes = normalizeDurationMinutes(
+    options.durationMinutes ?? options.roundLimit,
+    120
+  );
   const room = {
     code,
     name: options.name || '扯旋房间',
     host: host.username,
     creator: host.username,
-    roundLimit: options.roundLimit || 8,
+    durationMinutes,
+    endsAt: null,
+    extendedMinutes: 0,
     minBuyIn: options.minBuyIn || DEFAULT_BUY_IN,
     members: [{ username: host.username, nickname: host.nickname, ready: false, avatar_path: host.avatar_path || null }],
     seats: Array(8).fill(null),
     gameStarted: false,
     gameFinished: false,
     gameRound: 0,
+    paused: false,
+    endAfterHand: false,
     createdAt: Date.now(),
     ws: new Set(),
     disconnected: {},
@@ -58,23 +85,76 @@ function joinRoom(code, user) {
 
 function getRoomByCode(code) { return roomsByCode.get(code); }
 
+function summarizeRoom(room) {
+  const seatedCount = room.seats.filter(s => s !== null).length;
+  const memberCount = room.members.length;
+  let statusText;
+  if (room.gameStarted) {
+    const remain = formatRemainText(room.endsAt);
+    statusText = remain
+      ? `已开局（${seatedCount}人）第${room.gameRound}局 · ${remain}`
+      : `已开局（${seatedCount}人）第${room.gameRound}局`;
+  } else {
+    statusText = `等待中（${memberCount}人）· ${room.durationMinutes}分钟`;
+  }
+  return {
+    code: room.code,
+    name: room.name,
+    host: room.host,
+    creator: room.creator,
+    durationMinutes: room.durationMinutes,
+    endsAt: room.endsAt || null,
+    extendedMinutes: room.extendedMinutes || 0,
+    minBuyIn: room.minBuyIn,
+    gameStarted: room.gameStarted,
+    gameRound: room.gameRound,
+    paused: !!room.paused,
+    endAfterHand: !!room.endAfterHand,
+    memberCount,
+    seatedCount,
+    createdAt: room.createdAt,
+    statusText,
+    canSpectate: room.gameStarted && seatedCount >= 2,
+  };
+}
+
 function getRoomsByCreator(username) {
   const result = [];
   for (const room of roomsByCode.values()) {
     if (room.creator !== username) continue;
     if (room.disbanded) continue;
     if (room.members.length > 0 && !room.gameFinished) {
-      result.push({
-        code: room.code, name: room.name, host: room.host,
-        roundLimit: room.roundLimit, minBuyIn: room.minBuyIn,
-        gameStarted: room.gameStarted, gameRound: room.gameRound,
-        memberCount: room.members.length,
-        seatedCount: room.seats.filter(s => s !== null).length,
-        createdAt: room.createdAt,
-      });
+      result.push(summarizeRoom(room));
     }
   }
   return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 自己创建的 + 好友（其他玩家）创建的可见房间 */
+function getVisibleRooms(username) {
+  const result = [];
+  for (const room of roomsByCode.values()) {
+    if (room.disbanded) continue;
+    if (room.members.length === 0 || room.gameFinished) continue;
+    // 所有玩家可见彼此房间（隐式全员好友）
+    result.push(summarizeRoom(room));
+  }
+  return result.sort((a, b) => {
+    // 自己的房间优先
+    const aMine = a.creator === username || a.host === username ? 1 : 0;
+    const bMine = b.creator === username || b.host === username ? 1 : 0;
+    if (aMine !== bMine) return bMine - aMine;
+    return b.createdAt - a.createdAt;
+  });
+}
+
+function getActiveRoomCount() {
+  let n = 0;
+  for (const room of roomsByCode.values()) {
+    if (room.disbanded) continue;
+    if (room.members.length > 0 && !room.gameFinished) n++;
+  }
+  return n;
 }
 
 function getRoomInfo(code, user) {
@@ -82,11 +162,16 @@ function getRoomInfo(code, user) {
   if (!room) return null;
   return {
     code: room.code, name: room.name, host: room.host, creator: room.creator,
-    roundLimit: room.roundLimit, minBuyIn: room.minBuyIn,
+    durationMinutes: room.durationMinutes,
+    endsAt: room.endsAt || null,
+    extendedMinutes: room.extendedMinutes || 0,
+    minBuyIn: room.minBuyIn,
     members: room.members.map(m => ({ username: m.username, nickname: m.nickname, ready: m.ready })),
     seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
     gameStarted: room.gameStarted,
     gameRound: room.gameRound,
+    paused: !!room.paused,
+    endAfterHand: !!room.endAfterHand,
     createdAt: room.createdAt,
   };
 }
@@ -213,13 +298,15 @@ function startGame(code, username) {
 
   room.gameStarted = true;
   room.gameRound = 1;
+  room.extendedMinutes = 0;
+  room.endsAt = Date.now() + (room.durationMinutes || 120) * 60 * 1000;
   room.chipArchives = {};
   room.initialBuyIns = seated.map(s => ({
     username: s.username,
     nickname: s.nickname,
     buyIn: s.buyIn,
   }));
-  return { ok: true, gameStarted: true, gameRound: 1 };
+  return { ok: true, gameStarted: true, gameRound: 1, endsAt: room.endsAt };
 }
 
 function standUp(code, username) {
@@ -417,7 +504,10 @@ function broadcastRoom(room) {
     type: 'room_update',
     room: {
       code: room.code, name: room.name, host: room.host,
-      roundLimit: room.roundLimit, minBuyIn: room.minBuyIn,
+      durationMinutes: room.durationMinutes,
+      endsAt: room.endsAt || null,
+      extendedMinutes: room.extendedMinutes || 0,
+      minBuyIn: room.minBuyIn,
       members: room.members.map(m => ({
         username: m.username, nickname: m.nickname, ready: m.ready,
         disconnected: !!room.disconnected[m.username],
@@ -425,6 +515,8 @@ function broadcastRoom(room) {
       seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
       gameStarted: room.gameStarted,
       gameRound: room.gameRound,
+      paused: !!room.paused,
+      endAfterHand: !!room.endAfterHand,
     }
   });
   for (const ws of room.ws) { if (ws.readyState === 1) ws.send(data); }
@@ -434,7 +526,9 @@ function getSeatIds() { return SEAT_IDS; }
 
 module.exports = {
   roomsByCode, SEAT_IDS, DEFAULT_BUY_IN,
+  ALLOWED_DURATIONS, ALLOWED_EXTEND, normalizeDurationMinutes,
   createRoom, joinRoom, getRoomInfo, getRoomByCode, getRoomsByCreator,
+  getVisibleRooms, getActiveRoomCount, summarizeRoom,
   setReady: () => {}, // deprecated, use setSeatReady
   sitDown, standUp, setSeatReady, startGame,
   leaveRoom, broadcastRoom, finishRound,

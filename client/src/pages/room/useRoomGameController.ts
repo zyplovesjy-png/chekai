@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { useGameStore, type RoundRecord } from '@/stores/gameStore';
 import type { RoomInfo } from '@/stores/roomStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { SEAT_IDS, TURN_TIME_SECONDS } from './constants';
 import { calcSeatRotation } from './seatLayout';
@@ -35,6 +36,7 @@ export function useRoomGameController({
 }: UseRoomGameControllerArgs) {
   const game = useGameStore();
   const [showBuyIn, setShowBuyIn] = useState(false);
+  const [showSeatChange, setShowSeatChange] = useState(false);
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null);
   const [buyInAmount, setBuyInAmount] = useState(0);
   const [buyInDecision, setBuyInDecision] = useState<{
@@ -49,10 +51,9 @@ export function useRoomGameController({
   } | null>(null);
   const [addBuyInAmount, setAddBuyInAmount] = useState(100);
   const [showMenu, setShowMenu] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [viewingRound, setViewingRound] = useState(-1);
   const [raiseAmount, setRaiseAmount] = useState('');
   const [turnTimer, setTurnTimer] = useState(TURN_TIME_SECONDS);
+  const [turnTimerMax, setTurnTimerMax] = useState(TURN_TIME_SECONDS);
   const [dealAnim, setDealAnim] = useState<{ key: number; targets: number[] }>({ key: 0, targets: [] });
   const [chipAnim, setChipAnim] = useState<ChipAnimationEvent | null>(null);
   const [isDealing, setIsDealing] = useState(false);
@@ -67,6 +68,10 @@ export function useRoomGameController({
   const dealStreetKeyRef = useRef('');
   const capturedRound = useRef<number>(0);
   const prevRoundRef = useRef<number>(game.round);
+  const turnTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const turnDeadlineRef = useRef<number>(0);
+  const clearTurnTickRef = useRef<() => void>(() => {});
+  const startLocalTurnTickRef = useRef<(secondsLeft: number, deadline?: number) => void>(() => {});
 
   roomRef.current = room;
   myUsernameRef.current = myUsername;
@@ -77,30 +82,54 @@ export function useRoomGameController({
   const { visualSeats } = useMemo(() => calcSeatRotation(room, myUsername), [room, myUsername]);
   const currentActor = game.toAct?.[0] || null;
 
+  const clearTurnTick = useCallback(() => {
+    if (turnTickRef.current) {
+      clearInterval(turnTickRef.current);
+      turnTickRef.current = null;
+    }
+  }, []);
+
+  const startLocalTurnTick = useCallback((secondsLeft: number, deadline?: number) => {
+    clearTurnTick();
+    const secs = Math.max(0, Math.floor(secondsLeft));
+    setTurnTimer(secs);
+    setTurnTimerMax((prev) => Math.max(prev, secs, TURN_TIME_SECONDS));
+    turnDeadlineRef.current = deadline || (Date.now() + secs * 1000);
+    const warned = { done: false };
+    turnTickRef.current = setInterval(() => {
+      const left = Math.max(0, Math.ceil((turnDeadlineRef.current - Date.now()) / 1000));
+      setTurnTimer(left);
+      if (left === 30 && !warned.done) {
+        warned.done = true;
+        playWarnSound();
+      }
+      if (left <= 0 && turnTickRef.current) {
+        clearInterval(turnTickRef.current);
+        turnTickRef.current = null;
+      }
+    }, 250);
+  }, [clearTurnTick]);
+
+  clearTurnTickRef.current = clearTurnTick;
+  startLocalTurnTickRef.current = startLocalTurnTick;
+
   useEffect(() => {
     if (!currentActor) {
+      clearTurnTick();
       setTurnTimer(TURN_TIME_SECONDS);
+      setTurnTimerMax(TURN_TIME_SECONDS);
       return;
     }
-
-    setTurnTimer(TURN_TIME_SECONDS);
-    const warned = { done: false };
-    const interval = setInterval(() => {
-      setTurnTimer((timeLeft) => {
-        if (timeLeft === 31 && !warned.done) {
-          warned.done = true;
-          setTimeout(() => playWarnSound(), 900);
-        }
-        if (timeLeft <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return timeLeft - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentActor]);
+    // 暂停中不本地重置倒计时
+    if (room?.paused) {
+      clearTurnTick();
+      return;
+    }
+    // 新行动者：先本地重置，等待服务端 turn_timer 校准
+    setTurnTimerMax(TURN_TIME_SECONDS);
+    startLocalTurnTick(TURN_TIME_SECONDS);
+    return () => clearTurnTick();
+  }, [currentActor, clearTurnTick, startLocalTurnTick, room?.paused]);
 
   useEffect(() => {
     if (game.phase !== 'dealing') {
@@ -209,14 +238,17 @@ export function useRoomGameController({
     if (game.phase === 'done' && game.round !== capturedRound.current) {
       capturedRound.current = game.round;
       const compareResult = game.compareResult;
+      const endReason = compareResult?.reason || null;
       const record: RoundRecord = {
         round: game.round,
         bankerUsername: game.bankerUsername || '',
         winner: compareResult?.winner || null,
+        endReason,
         players: game.players.map((player) => {
           const result = compareResult?.results?.[player.username];
           const fullHand = compareResult?.hands?.[player.username];
           const fullSplit = compareResult?.splits?.[player.username];
+          const folded = !!player.folded;
           return {
             username: player.username,
             nickname: player.nickname,
@@ -229,7 +261,8 @@ export function useRoomGameController({
             wins: result?.wins || 0,
             losses: result?.losses || 0,
             ties: result?.ties || 0,
-            folded: player.folded,
+            folded,
+            rested: !!player.rested || (endReason === 'rest_cross' && !folded),
             eliminated: player.eliminated,
           };
         }),
@@ -244,7 +277,61 @@ export function useRoomGameController({
   const handlersRef = useRef<Record<string, (msg: any) => void> | null>(null);
   if (!handlersRef.current) {
     handlersRef.current = {
-      room_update: (msg: any) => setRoomRef.current(msg.room),
+      room_update: (msg: any) => {
+        const r = msg.room || {};
+        setRoomRef.current({
+          ...r,
+          durationMinutes: r.durationMinutes ?? 120,
+          endsAt: r.endsAt ?? null,
+          extendedMinutes: r.extendedMinutes || 0,
+          paused: !!r.paused,
+          endAfterHand: !!r.endAfterHand,
+        });
+      },
+      room_time_update: (msg: any) => {
+        const cur = useRoomStore.getState().room;
+        if (!cur) return;
+        setRoomRef.current({
+          ...cur,
+          endsAt: msg.endsAt ?? cur.endsAt,
+          extendedMinutes: msg.extendedMinutes ?? cur.extendedMinutes,
+          durationMinutes: msg.durationMinutes ?? cur.durationMinutes,
+        });
+        gameRef.current.pushFeed(
+          `房主加时 +${msg.addedMinutes || 0} 分钟`,
+          'system'
+        );
+      },
+      game_paused: (msg: any) => {
+        clearTurnTickRef.current?.();
+        const cur = useRoomStore.getState().room;
+        if (cur) {
+          setRoomRef.current({
+            ...cur,
+            paused: true,
+            endsAt: msg.endsAt ?? cur.endsAt,
+          });
+        }
+        gameRef.current.pushFeed('房主已暂停对局', 'system');
+        gameRef.current.showToast('对局已暂停', { sticky: true });
+      },
+      game_resumed: (msg: any) => {
+        const cur = useRoomStore.getState().room;
+        if (cur) {
+          setRoomRef.current({
+            ...cur,
+            paused: false,
+            endsAt: msg.endsAt ?? cur.endsAt,
+          });
+        }
+        gameRef.current.pushFeed('对局已恢复', 'system');
+        gameRef.current.showToast('对局已恢复', { ms: 2000 });
+      },
+      host_end_scheduled: () => {
+        const cur = useRoomStore.getState().room;
+        if (cur) setRoomRef.current({ ...cur, endAfterHand: true });
+        gameRef.current.pushFeed('房主已设定：本局结束后结算', 'system');
+      },
       game_init: () => { gameRef.current.setGameStarted(true); },
       game_sync: (msg: any) => { gameRef.current.setGameStarted(true); gameRef.current.setPrivateState(msg.state); },
       game_state: (msg: any) => gameRef.current.setPublicState(msg.state),
@@ -376,7 +463,7 @@ export function useRoomGameController({
       },
       game_settlement: (msg: any) => {
         setBuyInDecision(null);
-        gameRef.current.setSettlement(msg.settlement || []);
+        gameRef.current.setSettlement(msg.settlement || [], msg.potSplit || null);
       },
       awaiting_buyin_decision: (msg: any) => {
         // 兼容旧单人字段
@@ -435,6 +522,12 @@ export function useRoomGameController({
       turn_warning: () => {
         playWarnSound();
       },
+      turn_timer: (msg: any) => {
+        const secs = Number(msg.secondsLeft);
+        if (!Number.isFinite(secs)) return;
+        setTurnTimerMax((prev) => Math.max(prev, Math.floor(secs), TURN_TIME_SECONDS));
+        startLocalTurnTickRef.current(secs, msg.deadline ? Number(msg.deadline) : undefined);
+      },
       player_timeout: (msg: any) => {
         const currentRoom = roomRef.current;
         const name = currentRoom?.seats.find((seat) => seat?.username === msg.username)?.nickname || msg.username;
@@ -459,7 +552,14 @@ export function useRoomGameController({
         navigate('/lobby', { replace: true });
         return;
       }
-      setRoom(result.room);
+      setRoom({
+        ...result.room,
+        durationMinutes: result.room.durationMinutes ?? 120,
+        endsAt: result.room.endsAt ?? null,
+        extendedMinutes: result.room.extendedMinutes || 0,
+        paused: !!result.room.paused,
+        endAfterHand: !!result.room.endAfterHand,
+      });
     });
   }, [code, api, navigate, setRoom]);
 
@@ -472,22 +572,76 @@ export function useRoomGameController({
   const handleSit = useCallback((visualIdx: number) => {
     const physIdx = visualSeats[visualIdx];
     if (physIdx == null || !room) return;
+
+    const mySeat = room.seats.find((s) => s?.username === myUsername);
+    const gameStarted = !!room.gameStarted;
+    const inHandPhases = ['betting1', 'betting2', 'betting3', 'dealing', 'selecting', 'comparing'];
+    const inHand = gameStarted && inHandPhases.includes(game.phase);
+    const myPlayer = game.players.find((p) => p.username === myUsername);
+    const canChange = !!mySeat && gameStarted && (!inHand || !!myPlayer?.folded);
+
+    // 已入座 + 对局中且不可换座：空座不应可点（UI 已禁，双保险）
+    if (mySeat && gameStarted && !canChange) return;
+
+    // 已入座且允许换座：确认后换座，不弹买入
+    if (mySeat && canChange) {
+      setPendingSeatIdx(physIdx);
+      setShowSeatChange(true);
+      return;
+    }
+
+    // 未入座（观战加入 / 开局前坐下）：买入确认
     const base = room.minBuyIn || 100;
     setBuyInAmount(base);
     setPendingSeatIdx(physIdx);
     setShowBuyIn(true);
-  }, [visualSeats, room]);
+  }, [visualSeats, room, myUsername, game.phase, game.players]);
 
   const handleSitConfirm = useCallback(async () => {
     if (pendingSeatIdx === null || !code) return;
     const sid = SEAT_IDS[pendingSeatIdx];
-    await api(`/api/rooms/${code}/sit`, {
+    const result = await api(`/api/rooms/${code}/sit`, {
       method: 'POST',
       body: JSON.stringify({ seatId: sid, buyIn: buyInAmount }),
     });
+    if (!result?.ok) {
+      alert(result?.msg || '入座失败');
+      return;
+    }
     setShowBuyIn(false);
     setPendingSeatIdx(null);
-  }, [api, buyInAmount, code, pendingSeatIdx]);
+    if (result.spectating) {
+      game.pushFeed('已入座，本局观战，下一局开始打牌', 'system');
+    }
+  }, [api, buyInAmount, code, pendingSeatIdx, game]);
+
+  const handleSeatChangeConfirm = useCallback(async () => {
+    if (pendingSeatIdx === null || !code) return;
+    const sid = SEAT_IDS[pendingSeatIdx];
+    const result = await api(`/api/rooms/${code}/sit`, {
+      method: 'POST',
+      body: JSON.stringify({ seatId: sid }),
+    });
+    if (!result?.ok) {
+      alert(result?.msg || '换座失败');
+      return;
+    }
+    setShowSeatChange(false);
+    setPendingSeatIdx(null);
+    game.pushFeed(`已换到 ${pendingSeatIdx + 1} 号座`, 'system');
+  }, [api, code, pendingSeatIdx, game]);
+
+  const emptySeatAction = useMemo((): 'sit' | 'join' | 'change' | 'none' => {
+    if (!room) return 'none';
+    if (!room.gameStarted) return 'sit';
+    const mySeat = room.seats.find((s) => s?.username === myUsername);
+    if (!mySeat) return 'join';
+    const inHandPhases = ['betting1', 'betting2', 'betting3', 'dealing', 'selecting', 'comparing'];
+    const inHand = inHandPhases.includes(game.phase);
+    const myPlayer = game.players.find((p) => p.username === myUsername);
+    if (!inHand || myPlayer?.folded) return 'change';
+    return 'none';
+  }, [room, myUsername, game.phase, game.players]);
 
   const handleStandUp = useCallback(async () => {
     if (!code) return;
@@ -563,6 +717,26 @@ export function useRoomGameController({
     game.setSelected([]);
   }, [game, send]);
 
+  const handleExtendTurn = useCallback(() => {
+    send({ type: 'extend_turn' });
+  }, [send]);
+
+  const handleExtendTime = useCallback((minutes: number) => {
+    send({ type: 'extend_time', minutes });
+  }, [send]);
+
+  const handlePauseGame = useCallback(() => {
+    send({ type: 'pause_game' });
+  }, [send]);
+
+  const handleResumeGame = useCallback(() => {
+    send({ type: 'resume_game' });
+  }, [send]);
+
+  const handleHostEndAfterHand = useCallback(() => {
+    send({ type: 'host_end_after_hand' });
+  }, [send]);
+
   const allReady = useMemo(() => {
     if (!room || room.gameStarted) return false;
     const seated = room.seats.filter((seat) => seat !== null && seat.username !== room.host);
@@ -584,18 +758,17 @@ export function useRoomGameController({
     game,
     showBuyIn,
     setShowBuyIn,
+    showSeatChange,
+    setShowSeatChange,
     pendingSeatIdx,
     buyInAmount,
     setBuyInAmount,
     showMenu,
     setShowMenu,
-    showHistory,
-    setShowHistory,
-    viewingRound,
-    setViewingRound,
     raiseAmount,
     setRaiseAmount,
     turnTimer,
+    turnTimerMax,
     dealAnim,
     chipAnim,
     isDealing,
@@ -604,6 +777,8 @@ export function useRoomGameController({
     getAvatar,
     handleSit,
     handleSitConfirm,
+    handleSeatChangeConfirm,
+    emptySeatAction,
     handleStandUp,
     handleAddBuyIn,
     handleBuyInDecision,
@@ -618,6 +793,11 @@ export function useRoomGameController({
     handleCardClick,
     handleAutoSplit,
     handleConfirmSplit,
+    handleExtendTurn,
+    handleExtendTime,
+    handlePauseGame,
+    handleResumeGame,
+    handleHostEndAfterHand,
     allReady,
     spectators,
     isMyTurn,

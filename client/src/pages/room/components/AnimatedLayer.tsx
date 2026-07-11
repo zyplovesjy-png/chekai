@@ -2,6 +2,13 @@ import { useEffect, useRef } from 'react';
 import type { ChipAnimationEvent } from '../pixi/pixiTableTypes';
 import { cardBackUrl } from '../cardAssets';
 import { playChipSound, playDealSound } from '../sounds';
+import {
+  BET_CENTERS,
+  CARD_CENTERS,
+  DECK_ON_STAGE,
+  POT_ON_STAGE,
+  SEAT_CENTERS,
+} from '../tableLayout';
 
 interface AnimatedLayerProps {
   dealAnim: { key: number; targets: number[] };
@@ -11,48 +18,11 @@ interface AnimatedLayerProps {
   onDealComplete?: () => void;
 }
 
-/** 桌内公牌锚点（对照茶馆静态稿 tc*，百分比相对 stage） */
-const CARD_ANCHORS: Record<number, { left: string; top: string }> = {
-  0: { left: '50%', top: '20%' },
-  1: { left: '86%', top: '16%' },
-  2: { left: '87%', top: '40%' },
-  3: { left: '86%', top: '70%' },
-  4: { left: '50%', top: '88%' },
-  5: { left: '14%', top: '70%' },
-  6: { left: '13%', top: '40%' },
-  7: { left: '14%', top: '16%' },
-};
-
-/** 座位头像锚点 */
-const SEAT_ANCHORS: Record<number, { left: string; top: string }> = {
-  0: { left: '50%', top: '4%' },
-  1: { left: '96%', top: '12%' },
-  2: { left: '98%', top: '40%' },
-  3: { left: '96%', top: '70%' },
-  4: { left: '50%', top: '96%' },
-  5: { left: '4%', top: '70%' },
-  6: { left: '2%', top: '40%' },
-  7: { left: '4%', top: '12%' },
-};
-
-/**
- * 座位旁「喊价」落点（桌内靠近头像）
- * 相对座位略向桌心偏移
- */
-const SEAT_BET_ANCHORS: Record<number, { left: string; top: string }> = {
-  0: { left: '50%', top: '14%' },
-  1: { left: '82%', top: '18%' },
-  2: { left: '84%', top: '40%' },
-  3: { left: '82%', top: '64%' },
-  4: { left: '50%', top: '82%' },
-  5: { left: '18%', top: '64%' },
-  6: { left: '16%', top: '40%' },
-  7: { left: '18%', top: '18%' },
-};
-
-const POT_ANCHOR = { left: '50%', top: '44%' };
-/** 发牌起点：底池正上方牌堆中心（与 .deck-pile top:24% 对齐） */
-const DECK_ANCHOR = { left: '50%', top: '24%' };
+const CARD_ANCHORS = CARD_CENTERS;
+const SEAT_ANCHORS = SEAT_CENTERS;
+const SEAT_BET_ANCHORS = BET_CENTERS;
+const POT_ANCHOR = POT_ON_STAGE;
+const DECK_ANCHOR = DECK_ON_STAGE;
 
 const CLOCKWISE = [0, 1, 2, 3, 4, 5, 6, 7];
 const DEAL_CARD_MS = 280;

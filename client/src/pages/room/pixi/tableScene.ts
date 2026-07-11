@@ -97,14 +97,9 @@ export function createPixiTableScene(runtime: PixiRuntime): PixiTableScene {
       if (idx == null || idx < 0) return null;
       return geometry.seats[idx] || null;
     };
-    // 座位旁喊价落点：略向桌心偏移
     const betPoint = (idx?: number) => {
-      const s = seatPoint(idx);
-      if (!s) return null;
-      return {
-        x: s.x + (geometry.center.x - s.x) * 0.28,
-        y: s.y + (geometry.center.y - s.y) * 0.28,
-      };
+      if (idx == null || idx < 0) return null;
+      return geometry.bets[idx] || null;
     };
 
     let source = geometry.pot;

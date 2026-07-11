@@ -85,6 +85,20 @@
     <h1>房间 UI 视觉稿</h1>
     <p>两套静态稿，仅 HTML/CSS。牌面为正式客户端同款扑克样式（点数+花色）。8 人满座；他人不显示暗牌，只显示第3/4张；比牌时头尾四张。页内可切换「下注 / 比牌」。</p>
     <div class="cards">
+      <a class="card-link tea" href="/layout-lab">
+        <div class="preview"></div>
+        <div class="card-body">
+          <h2>布局实验室 · 客户端实样</h2>
+          <span>使用正在运行的房间页 CSS/组件。请先启动前端，再打开 /layout-lab 拖拽调位并导出 JSON。</span>
+        </div>
+      </a>
+      <a class="card-link tea" href="/layout-lab-cards">
+        <div class="preview"></div>
+        <div class="card-body">
+          <h2>公牌 / 喊价实验室</h2>
+          <span>只调牌桌、公牌尺寸位置、喊价筹码。导出 cards-bets-layout.json 后给我应用。</span>
+        </div>
+      </a>
       <a class="card-link tea" href="./style-tea.html">
         <div class="preview"></div>
         <div class="card-body">
@@ -102,7 +116,7 @@
     </div>
     <p class="note">
       约定：观战 / 对局记录收进右上角菜单；顶栏只留房号与局数。<br />
-      路径：ui-mockups/ · 不改动正式房间代码。
+      路径：ui-mockups/ · 布局实验室可导出 JSON；正式房间接入布局表需另开一轮。
     </p>
   </div>
 </body>

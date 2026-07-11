@@ -169,6 +169,128 @@
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
+
+/* 右侧对局记录抽屉 */
+.tea-room .history-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+.tea-room .history-drawer-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  pointer-events: auto;
+  touch-action: none;
+}
+.tea-room .history-drawer-handle {
+  position: absolute;
+  top: 42%;
+  right: 0;
+  z-index: 43;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 22px;
+  min-height: 88px;
+  padding: 10px 0;
+  border: 1px solid rgba(224, 192, 106, 0.35);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  background: rgba(18, 28, 22, 0.92);
+  color: rgba(224, 192, 106, 0.9);
+  box-shadow: -2px 2px 10px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  transform: translateY(-50%);
+  user-select: none;
+}
+.tea-room .history-drawer-handle:active {
+  cursor: grabbing;
+}
+.tea-room .history-drawer-handle-bar {
+  width: 3px;
+  height: 28px;
+  border-radius: 2px;
+  background: rgba(224, 192, 106, 0.55);
+}
+.tea-room .history-drawer-handle-label {
+  writing-mode: vertical-rl;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.tea-room .history-drawer-handle-count {
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: rgba(244, 240, 230, 0.85);
+  line-height: 1;
+}
+.tea-room .history-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 41;
+  pointer-events: auto;
+  background: #000;
+}
+.tea-room .history-drawer-panel {
+  position: absolute;
+  top: 52px;
+  right: 0;
+  bottom: 72px;
+  z-index: 42;
+  pointer-events: auto;
+  width: min(340px, 82vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(16, 22, 18, 0.96);
+  border: 1px solid rgba(224, 192, 106, 0.28);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.45);
+  transform: translate3d(100%, 0, 0);
+  transition: transform 0.22s ease;
+  touch-action: pan-y;
+}
+.tea-room .history-drawer.is-open .history-drawer-panel {
+  transform: translate3d(0, 0, 0);
+}
+.tea-room .history-drawer.is-dragging .history-drawer-panel {
+  transition: none;
+}
+.tea-room .history-drawer-panel .history-header {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(224, 192, 106, 0.14);
+}
+.tea-room .history-drawer-panel .history-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 12px;
+  overscroll-behavior: contain;
+}
+.tea-room .history-drawer-panel .history-close {
+  flex-shrink: 0;
+  margin: 8px 12px 12px;
+  width: calc(100% - 24px);
+}
+.tea-room .history-drawer-panel .history-empty-body {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: rgba(244, 240, 230, 0.55);
+  font-size: 0.85rem;
+}
 .history-header {
   display: flex;
   align-items: center;
@@ -213,6 +335,14 @@
   font-size: 9px;
   background: #555;
   color: #ccc;
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 14px;
+}
+.history-rest-tag {
+  font-size: 9px;
+  background: #455a64;
+  color: #cfd8dc;
   border-radius: 3px;
   padding: 0 3px;
   line-height: 14px;
@@ -335,7 +465,7 @@
 
 /* ========== 规则面板 ========== */
 .rule-panel {
-  position: fixed;
+  position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0, 0, 0, 0.7);
   display: flex; align-items: center; justify-content: center;
@@ -486,6 +616,26 @@
   max-width: 420px;
   width: 92%;
 }
+.settlement-pot-split {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(224, 192, 106, 0.1);
+  border: 1px solid rgba(224, 192, 106, 0.3);
+  text-align: left;
+}
+.settlement-pot-split-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold, #e0c06a);
+  margin-bottom: 4px;
+}
+.settlement-pot-split-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(244, 240, 230, 0.72);
+}
 .settlement-body {
   display: flex;
   flex-direction: column;
@@ -511,6 +661,20 @@
   text-align: left;
   font-weight: 600;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.settlement-refund-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #2ee6c8;
+  background: rgba(46, 230, 200, 0.12);
+  border: 1px solid rgba(46, 230, 200, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 .settlement-score {
   color: var(--text-dim);
@@ -705,10 +869,10 @@
 
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  max-width: 430px;
-  height: 100vh;
-  height: 100dvh;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  margin: 0;
   overflow: hidden;
   color: var(--ink);
   background:
@@ -792,6 +956,17 @@
   color: var(--gold);
   font-size: 0.9rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.tea-room .tea-menu-btn.tea-chrome-btn svg {
+  display: block;
+}
+.tea-room .tea-menu-btn:active {
+  background: rgba(224, 192, 106, 0.18);
 }
 
 /* —— 舞台 —— */
@@ -813,12 +988,13 @@
 .tea-room .table-felt.tea-felt,
 .tea-room .table-felt.tea-felt.pixi-backed {
   position: absolute !important;
-  top: 14% !important;
-  right: 15% !important;
-  bottom: 4% !important;
-  left: 15% !important;
-  width: auto !important;
-  height: auto !important;
+  /* table-layout.json felt — 略上移，避开底中 1 号座 */
+  top: 7% !important;
+  left: 15.18% !important;
+  width: 70% !important;
+  height: 80% !important;
+  right: auto !important;
+  bottom: auto !important;
   min-width: 0 !important;
   max-width: none !important;
   min-height: 0 !important;
@@ -864,11 +1040,11 @@
   display: none;
 }
 
-/* 底池 */
+/* 底池（相对 felt，table-layout.json） */
 .tea-room .tea-pot {
   position: absolute;
-  left: 50%;
-  top: 44%;
+  left: 49.74%;
+  top: 50.17%;
   transform: translate(-50%, -50%);
   z-index: 4;
   text-align: center;
@@ -982,8 +1158,9 @@
 
 .tea-room .deck-pile {
   position: absolute;
-  left: 50%;
-  top: 24%;
+  /* 相对 felt，table-layout.json deckCenter */
+  left: 49.74%;
+  top: 32.32%;
   transform: translate(-50%, -50%);
   width: 42px;
   height: 58px;
@@ -1346,24 +1523,44 @@
   width: 52px;
   min-width: 52px;
 }
-.tea-room .seat-vpos-0 { top: -2%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
-.tea-room .seat-vpos-1 { top: 7%; right: -2px; left: auto; bottom: auto; transform: none; }
-.tea-room .seat-vpos-2 { top: 35%; right: -2px; left: auto; bottom: auto; transform: none; }
-.tea-room .seat-vpos-3 { top: 63%; right: -2px; left: auto; bottom: auto; transform: none; }
-.tea-room .seat-vpos-4 { bottom: 0; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
-.tea-room .seat-vpos-5 { top: 63%; left: -2px; right: auto; bottom: auto; transform: none; }
-.tea-room .seat-vpos-6 { top: 35%; left: -2px; right: auto; bottom: auto; transform: none; }
-.tea-room .seat-vpos-7 { top: 7%; left: -2px; right: auto; bottom: auto; transform: none; }
+/* 座位环：table-layout.json seats（左上角定位） */
+.tea-room .seat-vpos-0 { top: -2%; left: 45.29%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-1 { top: 20%; left: 88%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-2 { top: 44%; left: 88%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-3 { top: 70%; left: 88%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-4 { top: 89.34%; left: 45.29%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-5 { top: 70%; left: 2%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-6 { top: 44%; left: 2%; right: auto; bottom: auto; transform: none; }
+.tea-room .seat-vpos-7 { top: 20%; left: 2%; right: auto; bottom: auto; transform: none; }
 
-/* 公牌锚点随桌内收同步 */
-.tea-room .public-cards-vpos-0 { top: 20%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
-.tea-room .public-cards-vpos-1 { top: 16%; right: 16%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-2 { top: 40%; right: 15%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-3 { top: 68%; right: 16%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-4 { bottom: 12%; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
-.tea-room .public-cards-vpos-5 { top: 68%; left: 16%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-6 { top: 40%; left: 15%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-7 { top: 16%; left: 16%; right: auto; bottom: auto; transform: none; }
+/* 顶中座位：名字浮在头像上方；倒计时放头像下方，避免被页面顶部裁切 */
+.tea-room .seat-slot.seat-vpos-0 .avatar-wrap-outer {
+  order: 0;
+}
+.tea-room .seat-slot.seat-vpos-0 .seat-stack-row.stack {
+  order: 1;
+}
+.tea-room .seat-slot.seat-vpos-0 .seat-name.name {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, calc(-100% - 2px));
+  margin-bottom: 0;
+}
+.tea-room .seat-slot.seat-vpos-0 .timer-num {
+  position: absolute;
+  left: 50%;
+  top: 38px;
+  transform: translateX(-50%) scale(0.9);
+  z-index: 7;
+}
+.tea-room .seat-slot.seat-vpos-0 .timer-num.show,
+.tea-room .seat-slot.seat-vpos-0.turn .timer-num {
+  transform: translateX(-50%) scale(1);
+}
+.tea-room .seat-slot.seat-vpos-0.turn .seat-stack-row.stack {
+  margin-top: 14px;
+}
 
 /* 取消旧布局对底中自己座位的抬高 */
 .tea-room .seat-vpos-4.is-me,
@@ -1375,27 +1572,27 @@
   display: none !important;
 }
 
-/* 桌内公牌锚点（对照静态稿 tc*） */
+/* 桌内公牌锚点（table-layout.json cards） */
 .tea-room .public-cards {
   position: absolute;
-  z-index: 5;
+  z-index: 8;
   gap: 2px;
   pointer-events: none;
   display: flex;
 }
 
-.tea-room .public-cards-vpos-0 { top: 20%; left: 50%; right: auto; bottom: auto; transform: translateX(-50%); }
-.tea-room .public-cards-vpos-1 { top: 16%; right: 14%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-2 { top: 40%; right: 13%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-3 { top: 70%; right: 14%; left: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-4 { bottom: 12%; left: 50%; right: auto; top: auto; transform: translateX(-50%); }
-.tea-room .public-cards-vpos-5 { top: 70%; left: 14%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-6 { top: 40%; left: 13%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-7 { top: 16%; left: 14%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-0 { top: 8.87%; left: 43.72%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-1 { top: 19.42%; left: 69.8%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-2 { top: 43.26%; left: 69.45%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-3 { top: 66.99%; left: 69.44%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-4 { top: 82.95%; left: 45.11%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-5 { top: 67.45%; left: 19.15%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-6 { top: 43.42%; left: 18.79%; right: auto; bottom: auto; transform: none; }
+.tea-room .public-cards-vpos-7 { top: 19.26%; left: 18.62%; right: auto; bottom: auto; transform: none; }
 
 .tea-room .public-cards .card-slot {
-  width: 26px;
-  height: 38px;
+  width: 34px;
+  height: 50px;
 }
 
 .tea-room .public-cards.split-display {
@@ -1429,14 +1626,21 @@
 }
 
 .tea-room .self-timer {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 4px;
   padding: 0 2px;
+  min-height: 22px;
+  /* 始终占位；非自己回合只隐藏，避免操作区高度抖动 */
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.tea-room .self-timer.show { display: flex; }
+.tea-room .self-timer.show {
+  visibility: visible;
+  pointer-events: auto;
+}
 
 .tea-room .self-timer .label {
   font-size: 0.58rem;
@@ -1468,6 +1672,30 @@
   font-size: 0.52rem;
   color: var(--muted);
   white-space: nowrap;
+}
+.tea-room .extend-turn-btn {
+  flex-shrink: 0;
+  min-width: auto;
+  padding: 2px 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid rgba(46, 230, 200, 0.45);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--timer, #2ee6c8);
+  cursor: pointer;
+}
+.tea-room .extend-turn-btn:active {
+  background: rgba(46, 230, 200, 0.2);
+}
+.tea-room .self-timer.urgent .extend-turn-btn {
+  border-color: rgba(255, 138, 61, 0.55);
+  color: var(--timer-warn);
+}
+.tea-room .self-timer.critical .extend-turn-btn {
+  border-color: rgba(255, 77, 77, 0.55);
+  color: var(--timer-crit);
 }
 
 .tea-room .self-row {
@@ -1644,7 +1872,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 手牌进 HUD：取消绝对定位 */
+/* 手牌进 HUD：取消绝对定位；无牌也占位 */
 .tea-room .tea-hud .my-hand-area,
 .tea-room.action-open .tea-hud .my-hand-area,
 .tea-room:not(.action-open) .tea-hud .my-hand-area {
@@ -1655,8 +1883,16 @@
   z-index: 1;
   display: flex;
   justify-content: center;
+  align-items: center;
   margin-bottom: 6px;
   min-height: 70px;
+  height: 70px;
+  flex-shrink: 0;
+}
+
+.tea-room .tea-hud .my-hand-area.is-empty {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .tea-room .tea-hud .my-hand {
@@ -1664,6 +1900,7 @@
   justify-content: center;
   gap: 4px;
   min-height: 70px;
+  height: 70px;
 }
 
 .tea-room .tea-hud .my-hand .card-slot {
@@ -1762,22 +1999,17 @@
   border: 1px solid rgba(224, 192, 106, 0.28);
 }
 
-@media (max-width: 370px) {
-  .tea-room .public-cards-vpos-1,
-  .tea-room .public-cards-vpos-2,
-  .tea-room .public-cards-vpos-3 { right: 12%; }
-  .tea-room .public-cards-vpos-5,
-  .tea-room .public-cards-vpos-6,
-  .tea-room .public-cards-vpos-7 { left: 12%; }
-}
+/* 百分比布局已覆盖窄屏，无需额外偏移 */
 
 /* ========== 茶馆风格 · 阶段 B 操作区 ========== */
 .tea-room .tea-action-root {
   width: 100%;
+  min-height: 44px;
+  flex-shrink: 0;
 }
 
 .tea-room .tea-bar {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -1787,8 +2019,6 @@
   width: 100%;
   flex-shrink: 0;
 }
-
-.tea-room .tea-bar.show { display: flex; }
 
 .tea-room .tea-bar .side {
   display: flex;
@@ -2084,6 +2314,7 @@
   align-items: center;
   gap: 4px;
   min-height: 70px;
+  height: 70px;
 }
 .tea-room .tea-hud .tea-split-hand.tea-split-row {
   flex-direction: row;
@@ -2091,6 +2322,7 @@
   align-items: flex-end;
   gap: 4px;
   min-height: 70px;
+  height: 70px;
 }
 .tea-room .tea-hud .tea-split-hand .card-slot {
   width: 48px;
@@ -2131,19 +2363,25 @@
   padding: 2px 10px calc(8px + var(--safe-b));
   flex-shrink: 0;
   max-height: none;
+  /* timer(~22) + self-row + hand(70) + bar(44) + 间距，发牌前后同高 */
+  min-height: calc(22px + 36px + 70px + 44px + 20px + var(--safe-b));
 }
 
 .tea-room .tea-hud .self-row {
   margin-bottom: 2px;
+  min-height: 32px;
+  flex-shrink: 0;
 }
 
 .tea-room .tea-hud .my-hand-area {
   margin-bottom: 4px !important;
   min-height: 70px !important;
+  height: 70px !important;
 }
 
 .tea-room .tea-hud .my-hand {
   min-height: 70px !important;
+  height: 70px !important;
   gap: 4px;
 }
 
@@ -2153,7 +2391,9 @@
 }
 
 .tea-room .tea-bar {
-  min-height: 40px;
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
   flex-shrink: 0;
 }
 
@@ -2163,6 +2403,12 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  cursor: pointer;
+}
+.tea-room .empty-seat.empty-seat-locked {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.72;
 }
 .tea-room .empty-avatar,
 .tea-room .empty-avatar.seat-num-avatar,

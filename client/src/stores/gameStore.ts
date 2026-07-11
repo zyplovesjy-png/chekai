@@ -12,6 +12,7 @@ export interface GamePlayer {
   sanhuaType?: string | null;
   canShowSanhua?: boolean;
   folded: boolean;
+  rested?: boolean;
   eliminated: boolean;
   handCount: number;
   lastDelta: number;
@@ -42,6 +43,16 @@ export interface SettlementPlayer {
   initial: number;
   final: number;
   delta: number;
+}
+
+export interface PotSplitInfo {
+  pot: number;
+  shares: Record<string, number>;
+  bankerUsername?: string | null;
+  recipientCount?: number;
+  base?: number;
+  remainder?: number;
+  inferred?: boolean;
 }
 
 export interface CompareResult {
@@ -95,6 +106,7 @@ export interface RoundPlayerRecord {
   losses: number;
   ties: number;
   folded: boolean;
+  rested: boolean;
   eliminated: boolean;
 }
 
@@ -103,6 +115,7 @@ export interface RoundRecord {
   bankerUsername: string;
   players: RoundPlayerRecord[];
   winner: string | null;
+  endReason?: string | null;
 }
 
 export type FeedKind = 'action' | 'system' | 'phase' | 'error';
@@ -151,6 +164,8 @@ interface GameState {
   knockedThisRound: string[];
   // 全局结算
   settlement: SettlementPlayer[] | null;
+  /** 终局遗留底池平分退回（有则展示说明） */
+  potSplit: PotSplitInfo | null;
   // 对局历史
   roundHistory: RoundRecord[];
   // 私有
@@ -179,7 +194,7 @@ interface GameState {
   addHistory: (msg: string) => void;
   knockUser: (username: string) => void;
   clearKnockedThisRound: () => void;
-  setSettlement: (settlement: SettlementPlayer[] | null) => void;
+  setSettlement: (settlement: SettlementPlayer[] | null, potSplit?: PotSplitInfo | null) => void;
   history: string[];
   reset: () => void;
 }
@@ -207,6 +222,7 @@ const initialState = {
   centerMessage: null as string | null,
   knockedThisRound: [] as string[],
   settlement: null as SettlementPlayer[] | null,
+  potSplit: null as PotSplitInfo | null,
   roundHistory: [] as RoundRecord[],
   myHand: [],
   mySplit: null,
@@ -339,7 +355,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   addRoundHistory: (record) => set((s) => ({ roundHistory: [...s.roundHistory, record] })),
   knockUser: (username: string) => set((s) => ({ knockedThisRound: s.knockedThisRound.includes(username) ? s.knockedThisRound : [...s.knockedThisRound, username] })),
   clearKnockedThisRound: () => set({ knockedThisRound: [] }),
-  setSettlement: (settlement: SettlementPlayer[] | null) => set({ settlement }),
+  setSettlement: (settlement: SettlementPlayer[] | null, potSplit: PotSplitInfo | null = null) =>
+    set({ settlement, potSplit: potSplit ?? null }),
   addHistory: (msg) => set((s) => ({ history: [...s.history.slice(-99), msg] })),
   reset: () => {
     if (toastTimer) {

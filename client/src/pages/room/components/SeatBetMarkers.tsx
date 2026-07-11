@@ -1,29 +1,26 @@
 import type { GamePlayer } from '@/stores/gameStore';
 import type { RoomInfo } from '@/stores/roomStore';
 import { getVisualIndexForUsername } from '../seatLayout';
-
-/** 桌面靠近头像的喊价落点（与 AnimatedLayer SEAT_BET_ANCHORS 一致） */
-const SEAT_BET_POS: Record<number, { left: string; top: string }> = {
-  0: { left: '50%', top: '14%' },
-  1: { left: '82%', top: '18%' },
-  2: { left: '84%', top: '40%' },
-  3: { left: '82%', top: '64%' },
-  4: { left: '50%', top: '82%' },
-  5: { left: '18%', top: '64%' },
-  6: { left: '16%', top: '40%' },
-  7: { left: '18%', top: '18%' },
-};
+import { BET_CENTERS } from '../tableLayout';
 
 interface SeatBetMarkersProps {
   players: GamePlayer[];
   room: RoomInfo | null;
   visualSeats: number[];
   gameStarted: boolean;
+  /** 比牌 / 比牌结果展示阶段隐藏喊价 */
+  hideForCompare?: boolean;
 }
 
-/** 每位玩家当前喊价显示在桌面靠近头像处 */
-export function SeatBetMarkers({ players, room, visualSeats, gameStarted }: SeatBetMarkersProps) {
-  if (!gameStarted) return null;
+/** 每位玩家当前喊价显示在桌面靠近头像处；比牌展示时隐藏，避免挡牌 */
+export function SeatBetMarkers({
+  players,
+  room,
+  visualSeats,
+  gameStarted,
+  hideForCompare = false,
+}: SeatBetMarkersProps) {
+  if (!gameStarted || hideForCompare) return null;
 
   return (
     <>
@@ -32,7 +29,7 @@ export function SeatBetMarkers({ players, room, visualSeats, gameStarted }: Seat
         if (amount <= 0 || player.folded || player.eliminated) return null;
         const visualIdx = getVisualIndexForUsername(room, visualSeats, player.username);
         if (visualIdx < 0) return null;
-        const pos = SEAT_BET_POS[visualIdx];
+        const pos = BET_CENTERS[visualIdx];
         if (!pos) return null;
         return (
           <div
