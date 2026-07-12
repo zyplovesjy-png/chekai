@@ -1,4 +1,5 @@
 ﻿/* ========== 扯旋服务端游戏引擎 ========== */
+const crypto = require('crypto');
 
 /* ----- 牌组（32张）----- */
 const DECK = [
@@ -146,7 +147,14 @@ function compareCombo(a, b) {
   return a.minO - b.minO;
 }
 
-function shuffle(arr) { const a=[...arr]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 // 检测三花十 / 三花六：玩家持有特定三张牌 + 任意一张，本局免输不赢
 function checkSanHua(cards) {
