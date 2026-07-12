@@ -174,10 +174,8 @@ function sanHuaCards(cards, type) {
 }
 
 function compareSingleCard(a, b) {
-  if (a.order !== b.order) return a.order - b.order;
-  // 同点数时按花色排序：♠>♥>♣>♦
-  const suitOrder = {'♠':4,'♥':3,'♣':2,'♦':1,'★':0};
-  return (suitOrder[a.suit]||0) - (suitOrder[b.suit]||0);
+  // 仅比牌力 order；并列时由 findOpenerWithTieBreak 按第一轮发话顺序决断，不比花色
+  return (a.order || 0) - (b.order || 0);
 }
 
 function normalizeBetAmount(amount) {
@@ -258,6 +256,8 @@ class GameEngine {
       beatMangoWinner: null,
       openingMango: null,
       roundHadBet: false,
+      /** 本局是否有人「已下注后又面对加价再弃」——有则本局不揍芒 */
+      foldFacedRaise: false,
       minBet: MANGO_BASE,
       maxBet: DEFAULT_MAX_BET,
       lastFinalBet: 0,
@@ -381,6 +381,20 @@ class GameEngine {
     if (!['betting2', 'betting3'].includes(s.phase)) return false;
     if (!s.toAct.includes(player.username)) return false;
     return true;
+  }
+
+  /**
+   * 仅剩一人且仍可亮三花：仅当本局已有人亮三花离场时才等待（双三花）。
+   * 纯弃牌独赢：不论尾家是否三花，立刻收池（实战不会放弃底池去摊牌）。
+   */
+  soleSurvivorMayStillShowSanhua(player) {
+    if (!this.players.some((p) => p.sanhuaShown)) return false;
+    if (!player || player.folded || player.eliminated || player.sanhuaShown || player.sanhuaRevealLocked) return false;
+    if (!checkSanHua(player.hand).sanhua) return false;
+    if (player.sanhuaOfferPending) return true;
+    if (player.allIn) return false;
+    if (!['betting2', 'betting3'].includes(this.state.phase)) return false;
+    return this.state.toAct.includes(player.username);
   }
 
   lockSanhuaRevealIfAvailable(player) {
@@ -611,8 +625,8 @@ class GameEngine {
     return this.activeIndicesCCW((this.state.bankerIdx + 1) % n);
   }
 
-  // 第3/4张牌后谁先发话：明牌最大者；并列最大时按第一轮发话顺序谁在前谁先说
-  // 例：座位逆时针 abcde，b 庄 → 第一轮 cdeab；d、a 并列最大 → d 在前 → 本轮 deabc
+  // 第3/4张牌后谁先发话：明牌牌力（order）最大者；并列时按第一轮发话顺序谁在前谁先说（不比花色）
+  // 例：甲庄、甲乙丙明牌同大 → 乙先（庄家下家）
   findOpenerWithTieBreak(cardIdx) {
     const round1 = this.firstRoundSpeakOrder();
     const orderRank = new Map();
@@ -677,6 +691,7 @@ class GameEngine {
     s.splits = {};
     s.compareResult = null;
     s.roundHadBet = false;
+    s.foldFacedRaise = false;
     s.lastFinalBet = 0;
     s.raiseCount = 0;
 
@@ -799,6 +814,11 @@ class GameEngine {
 
   doFold(p) {
     this.lockSanhuaRevealIfAvailable(p);
+    const s = this.state;
+    // 已有喊价预扣，且桌上喊价高于自己 → 面对加价再弃（不揍芒）
+    if ((p.committed || 0) > 0 && (s.currentBet || 0) > p.committed) {
+      s.foldFacedRaise = true;
+    }
     // 弃牌 = 立即支付自己当前的喊价进底池
     const lost = this.payCommitmentToPot(p);
     p.folded = true;
@@ -941,18 +961,22 @@ class GameEngine {
     if (stillInPlayers.length <= 1) {
       if (stillInPlayers.length === 1) {
         const winner = stillInPlayers[0];
+        // 已有人亮三花、幸存者仍可亮 → 等（双三花）；纯弃牌独赢立刻收池
+        if (this.soleSurvivorMayStillShowSanhua(winner)) {
+          return { done: false };
+        }
         // 幸存者喊价作废退还（只吃底池，不碰赢家自己的喊价）
         this.refundCommitment(winner);
         const won = s.potPi;
         winner.pot += won;
         winner.lastDelta += won;
         s.potPi = 0;
-        // 揍芒：有人下注后，弃牌者皆未付过喊价（白丢）才触发。
-        // 若有人已下注再弃牌（foldPaid>0），不算揍芒。亮三花不算弃牌。
+        // 揍芒：只剩一人赢（其余弃牌）默认触发。
+        // 赢家未操作别人丢光 与 赢家已下注别人丢光 相同。
+        // 例外：有人已下注后又面对加价（返）再弃 → 不揍芒。亮三花不算弃牌。
         const folders = this.players.filter(p => p.folded && !p.eliminated);
         const someoneFolded = folders.length > 0;
-        const folderPaidBet = folders.some(p => (p.foldPaid || 0) > 0);
-        if (s.roundHadBet && someoneFolded && !folderPaidBet) {
+        if (someoneFolded && !s.foldFacedRaise) {
           s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
           s.beatMangoWinner = winner.username;
         } else {
@@ -962,15 +986,7 @@ class GameEngine {
         }
         return { done: true, reason: 'all_folded', winner: winner.username };
       }
-      // 无人留下（例如全员亮三花）：底池退回庄家，避免筹码卡在 potPi
-      if (s.potPi > 0) {
-        const banker = this.players[s.bankerIdx];
-        if (banker) {
-          banker.pot += s.potPi;
-          banker.lastDelta += s.potPi;
-        }
-        s.potPi = 0;
-      }
+      // 无人留下（双三花均摊牌）：无人收池，底池留到下一局；不揍芒、不打芒
       s.restMangoLevel = 0;
       s.beatMangoWinner = null;
       return { done: true, reason: 'all_sanhua' };

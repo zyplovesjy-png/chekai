@@ -28,7 +28,7 @@ function estimateSettleChipAnimMs(compareResult) {
     if ((r?.lastDelta ?? 0) < 0) losers += 1;
   }
   const base = settleAnimBaseDelayMs(compareResult.reason);
-  // all_folded / all_sanhua：客户端只播底池→赢家
+  // all_folded / 有人收池的 all_sanhua：播底池→赢家；双三花无人收池时 winner 为空，上方已 return 0
   if (compareResult.reason === 'all_folded' || compareResult.reason === 'all_sanhua') {
     return base + CHIP_FLY_MS + 80;
   }

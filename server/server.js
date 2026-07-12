@@ -1963,6 +1963,7 @@ function finishSelectingIfNeededAfterSanhua(room, engine) {
     .filter((p) => p && !p.folded && !p.eliminated);
 
   if (still.length === 0) {
+    // 双三花均摊牌：底池留在 potPi 滚入下一局；不揍芒、不打芒
     s.restMangoLevel = 0;
     s.beatMangoWinner = null;
     s.phase = 'done';
