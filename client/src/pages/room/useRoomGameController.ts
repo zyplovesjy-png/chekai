@@ -37,6 +37,8 @@ export function useRoomGameController({
 }: UseRoomGameControllerArgs) {
   const game = useGameStore();
   const [showBuyIn, setShowBuyIn] = useState(false);
+  const [buyInMode, setBuyInMode] = useState<'full' | 'topup'>('full');
+  const [carryChips, setCarryChips] = useState(0);
   const [showSeatChange, setShowSeatChange] = useState(false);
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null);
   const [buyInAmount, setBuyInAmount] = useState(0);
@@ -553,7 +555,22 @@ export function useRoomGameController({
         const suffix = msg.pending === false ? '' : '（下局生效）';
         gameRef.current.pushFeed(`${name} 加簸 ${amount}${suffix}`, 'system');
       },
-      player_reconnected: () => gameRef.current.pushFeed('玩家重新连接', 'system'),
+      player_reconnected: (msg: any) => {
+        const name = msg.nickname || msg.username || '玩家';
+        gameRef.current.pushFeed(`${name} 重新连接`, 'system');
+      },
+      player_disconnected: (msg: any) => {
+        const name = msg.nickname || msg.username || '玩家';
+        gameRef.current.pushFeed(`${name} 掉线`, 'system');
+      },
+      player_stand: (msg: any) => {
+        const name = msg.nickname || msg.username || '玩家';
+        gameRef.current.pushFeed(`${name} 起身离座`, 'system');
+      },
+      player_left: (msg: any) => {
+        const name = msg.nickname || msg.username || '玩家';
+        gameRef.current.pushFeed(`${name} 离开房间`, 'system');
+      },
       room_disbanded: () => {
         awaitingGameSyncRef.current = false;
         gameRef.current.reset();
@@ -697,7 +714,25 @@ export function useRoomGameController({
     return member?.avatar_path || undefined;
   }, [room]);
 
-  const handleSit = useCallback((visualIdx: number) => {
+  const sitWithBuyIn = useCallback(async (physIdx: number, amount: number) => {
+    if (!code) return false;
+    const sid = SEAT_IDS[physIdx];
+    const result = await api(`/api/rooms/${code}/sit`, {
+      method: 'POST',
+      body: JSON.stringify({ seatId: sid, buyIn: amount }),
+    });
+    if (!result?.ok) {
+      alert(result?.msg || '入座失败');
+      return false;
+    }
+    await refreshRoom();
+    if (result.spectating) {
+      game.pushFeed('已入座，本局观战，下一局开始打牌', 'system');
+    }
+    return true;
+  }, [api, code, game, refreshRoom]);
+
+  const handleSit = useCallback(async (visualIdx: number) => {
     const physIdx = visualSeats[visualIdx];
     if (physIdx == null || !room) return;
 
@@ -718,31 +753,41 @@ export function useRoomGameController({
       return;
     }
 
-    // 未入座（观战加入 / 开局前坐下）：买入确认
-    const base = room.minBuyIn || 100;
-    setBuyInAmount(base);
-    setPendingSeatIdx(physIdx);
-    setShowBuyIn(true);
-  }, [visualSeats, room, myUsername, game.phase, game.players]);
+    const minBuy = room.minBuyIn || 100;
+    const carry = Math.max(0, Math.floor(Number(room.myCarryChips) || 0));
 
-  const handleSitConfirm = useCallback(async () => {
-    if (pendingSeatIdx === null || !code) return;
-    const sid = SEAT_IDS[pendingSeatIdx];
-    const result = await api(`/api/rooms/${code}/sit`, {
-      method: 'POST',
-      body: JSON.stringify({ seatId: sid, buyIn: buyInAmount }),
-    });
-    if (!result?.ok) {
-      alert(result?.msg || '入座失败');
+    // 结余已够最少带入：直接入座，不再掏钱
+    if (gameStarted && carry >= minBuy) {
+      await sitWithBuyIn(physIdx, 0);
       return;
     }
+
+    // 有结余但不够：加簸补差
+    if (gameStarted && carry > 0 && carry < minBuy) {
+      const gap = minBuy - carry;
+      setBuyInMode('topup');
+      setCarryChips(carry);
+      setBuyInAmount(gap);
+      setPendingSeatIdx(physIdx);
+      setShowBuyIn(true);
+      return;
+    }
+
+    // 无结余：整笔买入
+    setBuyInMode('full');
+    setCarryChips(0);
+    setBuyInAmount(minBuy);
+    setPendingSeatIdx(physIdx);
+    setShowBuyIn(true);
+  }, [visualSeats, room, myUsername, game.phase, game.players, sitWithBuyIn]);
+
+  const handleSitConfirm = useCallback(async () => {
+    if (pendingSeatIdx === null) return;
+    const ok = await sitWithBuyIn(pendingSeatIdx, buyInAmount);
+    if (!ok) return;
     setShowBuyIn(false);
     setPendingSeatIdx(null);
-    await refreshRoom();
-    if (result.spectating) {
-      game.pushFeed('已入座，本局观战，下一局开始打牌', 'system');
-    }
-  }, [api, buyInAmount, code, pendingSeatIdx, game, refreshRoom]);
+  }, [pendingSeatIdx, buyInAmount, sitWithBuyIn]);
 
   const handleSeatChangeConfirm = useCallback(async () => {
     if (pendingSeatIdx === null || !code) return;
@@ -901,6 +946,8 @@ export function useRoomGameController({
     pendingSeatIdx,
     buyInAmount,
     setBuyInAmount,
+    buyInMode,
+    carryChips,
     showMenu,
     setShowMenu,
     raiseAmount,

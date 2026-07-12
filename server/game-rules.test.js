@@ -686,6 +686,7 @@ run('decline sanhua offer by confirming split', () => {
 });
 
 run('fold after bet still triggers beat mango', () => {
+  // 一人喊价，其余未跟就丢 → 揍芒
   const engine = makeEngine([200, 200, 200]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -698,6 +699,43 @@ run('fold after bet still triggers beat mango', () => {
   assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p2' });
   assert.strictEqual(engine.state.restMangoLevel, 1);
   assert.strictEqual(engine.state.beatMangoWinner, 'p2');
+});
+
+run('fold after own bet does not trigger beat mango', () => {
+  // 甲喊 → 乙返 → 甲弃（已付喊价）→ 不揍芒
+  const engine = makeEngine([300, 300, 300]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+
+  engine.doCall(p2, 50);
+  engine.doRaise(p3, 200);
+  engine.doFold(p1);
+  engine.doFold(p2);
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p3' });
+  assert.ok((player(engine, 'p2').foldPaid || 0) > 0);
+  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(engine.state.beatMangoWinner, null);
+});
+
+run('mixed free-fold and paid-fold does not trigger beat mango', () => {
+  // 甲喊，乙白丢，丙跟后再丢 → 不揍芒
+  const engine = makeEngine([300, 300, 300]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+
+  engine.doCall(p2, 50);
+  engine.doFold(p3);
+  engine.doSee(p1);
+  engine.doFold(p1);
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p2' });
+  assert.ok((player(engine, 'p1').foldPaid || 0) > 0);
+  assert.strictEqual((player(engine, 'p3').foldPaid || 0), 0);
+  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(engine.state.beatMangoWinner, null);
 });
 
 /* ========== 结算场景（1.4 / 1.5） ========== */
@@ -1044,6 +1082,100 @@ run('leave+rebuy settlement merges archive with current seat', () => {
   });
   assert.strictEqual(room.chipArchives.user1.totalBuyIn, 800);
   assert.strictEqual(room.chipArchives.user1.finalPot, 690);
+});
+
+run('reclaim carry then top-up settles without double-counting', () => {
+  const {
+    accumulateChipArchive,
+    reclaimChipArchive,
+    getCarryChips,
+    settlePlayerChips,
+  } = require('./chip-ledger');
+  const room = { chipArchives: {}, seats: [null, null] };
+
+  // 首段带入 200，离座结余 80
+  accumulateChipArchive(room, {
+    username: 'user1',
+    nickname: '甲',
+    totalBuyIn: 200,
+    finalPot: 80,
+    initialBuyIn: 200,
+  });
+  assert.strictEqual(getCarryChips(room, 'user1'), 80);
+
+  const carry = getCarryChips(room, 'user1');
+  const topUp = 20;
+  const used = reclaimChipArchive(room, 'user1', carry);
+  assert.strictEqual(used, 80);
+  assert.strictEqual(room.chipArchives.user1.finalPot, 0);
+  assert.strictEqual(room.chipArchives.user1.totalBuyIn, 200); // 本金不动
+  assert.strictEqual(getCarryChips(room, 'user1'), 0);
+
+  const stack = carry + topUp;
+  const row = settlePlayerChips({
+    username: 'user1',
+    nickname: '甲',
+    archive: room.chipArchives.user1,
+    player: { pot: stack, committed: 0, pendingBuyIn: 0, totalBuyIn: topUp },
+    fallbackBuyIn: 220,
+  });
+  assert.strictEqual(row.initial, 220);
+  assert.strictEqual(row.final, 100);
+  assert.strictEqual(row.delta, -120);
+});
+
+run('reclaim full carry with zero top-up does not double finalPot', () => {
+  const {
+    accumulateChipArchive,
+    reclaimChipArchive,
+    settlePlayerChips,
+  } = require('./chip-ledger');
+  const room = { chipArchives: {} };
+
+  accumulateChipArchive(room, {
+    username: 'user1',
+    totalBuyIn: 200,
+    finalPot: 150,
+    initialBuyIn: 200,
+  });
+  reclaimChipArchive(room, 'user1', 150);
+  assert.strictEqual(room.chipArchives.user1.finalPot, 0);
+
+  const row = settlePlayerChips({
+    username: 'user1',
+    archive: room.chipArchives.user1,
+    player: { pot: 150, committed: 0, pendingBuyIn: 0, totalBuyIn: 0 },
+  });
+  assert.strictEqual(row.initial, 200);
+  assert.strictEqual(row.final, 150);
+  assert.strictEqual(row.delta, -50);
+});
+
+run('zero carry full rebuy stays single segment cash-in', () => {
+  const { settlePlayerChips } = require('./chip-ledger');
+  const row = settlePlayerChips({
+    username: 'user1',
+    archive: null,
+    player: { pot: 100, committed: 0, pendingBuyIn: 0, totalBuyIn: 100 },
+    fallbackBuyIn: 100,
+  });
+  assert.strictEqual(row.initial, 100);
+  assert.strictEqual(row.final, 100);
+  assert.strictEqual(row.delta, 0);
+});
+
+run('getCarryChips is zero while seated', () => {
+  const { accumulateChipArchive, getCarryChips } = require('./chip-ledger');
+  const room = {
+    chipArchives: {},
+    seats: [{ username: 'user1', buyIn: 80 }],
+  };
+  accumulateChipArchive(room, {
+    username: 'user1',
+    totalBuyIn: 200,
+    finalPot: 80,
+  });
+  assert.strictEqual(getCarryChips(room, 'user1'), 0);
 });
 
 console.log('\nAll game-rules tests finished.');

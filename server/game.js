@@ -540,6 +540,7 @@ class GameEngine {
         next.push(existing);
       } else {
         const buyIn = s.buyIn || this.room.minBuyIn || DEFAULT_BUY_IN;
+        const segmentBuyIn = s.segmentBuyIn != null ? s.segmentBuyIn : buyIn;
         next.push({
           username: s.username,
           nickname: s.nickname,
@@ -562,7 +563,7 @@ class GameEngine {
           lastDelta: 0,
           roundStartPot: buyIn,
           pendingBuyIn: 0,
-          totalBuyIn: buyIn,
+          totalBuyIn: Math.max(0, Math.floor(Number(segmentBuyIn) || 0)),
           seat: seatIds[idx],
           seatNo: idx + 1,
           joiningNextRound: true,
@@ -946,9 +947,12 @@ class GameEngine {
         winner.pot += won;
         winner.lastDelta += won;
         s.potPi = 0;
-        // 揍芒：有人下注后其余「弃牌」才触发。亮三花不算弃牌，不揍芒。
-        const someoneFolded = this.players.some(p => p.folded && !p.eliminated);
-        if (s.roundHadBet && someoneFolded) {
+        // 揍芒：有人下注后，弃牌者皆未付过喊价（白丢）才触发。
+        // 若有人已下注再弃牌（foldPaid>0），不算揍芒。亮三花不算弃牌。
+        const folders = this.players.filter(p => p.folded && !p.eliminated);
+        const someoneFolded = folders.length > 0;
+        const folderPaidBet = folders.some(p => (p.foldPaid || 0) > 0);
+        if (s.roundHadBet && someoneFolded && !folderPaidBet) {
           s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
           s.beatMangoWinner = winner.username;
         } else {
@@ -1378,6 +1382,14 @@ class GameEngine {
       bankerIdx: s.bankerIdx,
       bankerUsername: s.bankerIdx >= 0 ? this.players[s.bankerIdx]?.username : null,
       compareResult: s.compareResult,
+      openingMango: s.openingMango
+        ? {
+            level: s.openingMango.level || 0,
+            kind: s.openingMango.kind || null,
+            amount: s.openingMango.amount || 0,
+            exempt: s.openingMango.exempt || null,
+          }
+        : null,
       hints: {
         'idle': '等待开始...',
         'dealing': '发牌中...',

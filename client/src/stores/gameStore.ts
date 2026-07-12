@@ -174,6 +174,8 @@ interface GameState {
   selected: number[];
   compareResult: CompareResult | null;
   gameStarted: boolean;
+  /** 本局开局收取的芒果（有则底池下可显示一/二/三芒） */
+  openingMango: { level: number; kind?: string | null; amount?: number; exempt?: string | null } | null;
 
   setPublicState: (state: any) => void;
   setPrivateState: (state: any) => void;
@@ -230,6 +232,7 @@ const initialState = {
   selected: [],
   compareResult: null,
   gameStarted: false,
+  openingMango: null as { level: number; kind?: string | null; amount?: number; exempt?: string | null } | null,
   history: [],
 };
 
@@ -257,6 +260,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     bankerIdx: state.bankerIdx ?? -1,
     bankerUsername: state.bankerUsername ?? null,
     compareResult: state.compareResult ?? null,
+    openingMango: state.openingMango ?? null,
   }),
 
   setPrivateState: (state) => set({
@@ -278,6 +282,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     bankerIdx: state.bankerIdx ?? -1,
     bankerUsername: state.bankerUsername ?? null,
     compareResult: state.compareResult ?? null,
+    openingMango: state.openingMango ?? null,
   }),
 
   setMyHand: (hand) => set({ myHand: hand }),

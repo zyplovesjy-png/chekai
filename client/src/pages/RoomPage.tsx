@@ -52,6 +52,8 @@ export default function RoomPage() {
     pendingSeatIdx,
     buyInAmount,
     setBuyInAmount,
+    buyInMode,
+    carryChips,
     showMenu,
     setShowMenu,
     raiseAmount,
@@ -172,7 +174,13 @@ export default function RoomPage() {
       ? (endReason === 'rest_cross' ? '全休' : endReason === 'all_folded' ? '独赢' : realCompare ? '比牌结束' : '本局结束')
       : game.gameStarted && game.currentBet > 0
         ? `喊价 ${game.currentBet}`
-        : '';
+        : (() => {
+            const lv = Math.floor(Number(game.openingMango?.level) || 0);
+            if (lv === 1) return '一芒';
+            if (lv === 2) return '二芒';
+            if (lv === 3) return '三芒';
+            return '';
+          })();
 
   // 渲染每个座位区域（头像+明牌；自己在 HUD）
   const renderSeatArea = (physIdx: number, visualIdx: number) => {
@@ -616,17 +624,30 @@ export default function RoomPage() {
       {showBuyIn && room && (
         <div className="modal-overlay" onClick={() => setShowBuyIn(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">买入积分</div>
+            <div className="modal-title">{buyInMode === 'topup' ? '加簸入座' : '买入积分'}</div>
             <p className="modal-desc">
-              {room.gameStarted
-                ? '对局已开始：确认后入座。若本手进行中则先观战，下一局起正式打牌。'
-                : '请选择本局买入分'}
+              {buyInMode === 'topup'
+                ? `你离开时筹码为 ${carryChips}，不够当前最少带入 ${room.minBuyIn || 100}，请加簸。加簸后入座筹码 = ${carryChips} + 加簸额。`
+                : room.gameStarted
+                  ? '对局已开始：确认后入座。若本手进行中则先观战，下一局起正式打牌。'
+                  : '请选择本局买入分'}
             </p>
             <div className="buyin-options">
-              {[room.minBuyIn || 100, (room.minBuyIn || 100) * 2, (room.minBuyIn || 100) * 3, (room.minBuyIn || 100) * 5].map((amount) => (
+              {(buyInMode === 'topup'
+                ? (() => {
+                    const minBuy = room.minBuyIn || 100;
+                    const gap = Math.max(0, minBuy - carryChips);
+                    const presets = [gap, minBuy, minBuy * 2, minBuy * 3, minBuy * 5]
+                      .filter((n) => n > 0)
+                      .filter((n, i, arr) => arr.indexOf(n) === i)
+                      .sort((a, b) => a - b);
+                    return presets;
+                  })()
+                : [room.minBuyIn || 100, (room.minBuyIn || 100) * 2, (room.minBuyIn || 100) * 3, (room.minBuyIn || 100) * 5]
+              ).map((amount) => (
                 <label key={amount} className="buyin-option">
                   <input type="radio" name="buyin" value={amount} checked={buyInAmount === amount} onChange={() => setBuyInAmount(amount)} />
-                  {amount} 分
+                  {buyInMode === 'topup' ? `加簸 ${amount} 分（入座 ${carryChips + amount}）` : `${amount} 分`}
                 </label>
               ))}
             </div>

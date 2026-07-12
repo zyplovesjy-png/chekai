@@ -56,6 +56,8 @@ export interface RoomInfo {
       shares?: Record<string, number>;
     } | null;
   } | null;
+  /** 当前用户离座结余（未入座时）；用于再入座带回 */
+  myCarryChips?: number;
   createdAt: number;
 }
 

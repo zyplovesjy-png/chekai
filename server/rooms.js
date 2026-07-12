@@ -1,6 +1,6 @@
 /* ========== 房间系统：创建/加入/座位管理/游戏状态 ========== */
 const { attachLogger, getLogger } = require('./game-logger');
-const { accumulateChipArchive } = require('./chip-ledger');
+const { accumulateChipArchive, reclaimChipArchive, getCarryChips, archivePlayerOrSeat } = require('./chip-ledger');
 
 // 内存存储所有房间
 const roomsByCode = new Map();
@@ -218,6 +218,7 @@ function getActiveRoomCount() {
 function getRoomInfo(code, user) {
   const room = roomsByCode.get(code);
   if (!room) return null;
+  const username = user?.username || null;
   const info = {
     code: room.code, name: room.name, host: room.host, creator: room.creator,
     durationMinutes: room.durationMinutes,
@@ -232,6 +233,7 @@ function getRoomInfo(code, user) {
     endAfterHand: !!room.endAfterHand,
     disbanded: !!room.disbanded,
     createdAt: room.createdAt,
+    myCarryChips: username ? getCarryChips(room, username) : 0,
   };
   // 已结束对局：附带终局结算，方便刷新/重连补界面
   if (room.disbanded && room.lastSettlement) {
@@ -289,33 +291,61 @@ function sitDown(code, username, nickname, seatId, buyIn) {
     }
 
     // 新入座：对局中坐下则本局观战，下局加入
-    const finalBuyIn = buyIn || defaultBuyIn;
-    if (finalBuyIn < (room.minBuyIn || 0)) {
-      return { ok: false, msg: `至少需要带入 ${room.minBuyIn} 分` };
+    // buyIn = 本笔新掏的钱（topUp）；结余从 chipArchives 带回
+    const carry = getCarryChips(room, username);
+    const topUpRaw = buyIn === undefined || buyIn === null || buyIn === ''
+      ? (carry > 0 ? 0 : defaultBuyIn)
+      : Number(buyIn);
+    const topUp = Math.max(0, Math.floor(Number.isFinite(topUpRaw) ? topUpRaw : 0));
+    const minBuy = room.minBuyIn || 0;
+    const stack = carry + topUp;
+    if (stack < minBuy) {
+      if (carry > 0) {
+        return {
+          ok: false,
+          msg: `你离开时筹码为 ${carry}，不够当前最少带入 ${minBuy}，请加簸至少 ${minBuy - carry}`,
+        };
+      }
+      return { ok: false, msg: `至少需要带入 ${minBuy} 分` };
     }
+    if (carry > 0) {
+      reclaimChipArchive(room, username, carry);
+    }
+    // 有结余时 segmentBuyIn 只记新钱；无结余时整笔都是新带入
+    const segmentBuyIn = carry > 0 ? topUp : stack;
     room.seats[targetIdx] = {
       username,
       nickname,
-      buyIn: finalBuyIn,
+      buyIn: stack,
+      segmentBuyIn,
       ready: true,
       avatar_path: member?.avatar_path || null,
       joiningNextRound: inHand,
     };
     if (!room.initialBuyIns) room.initialBuyIns = [];
-    const existingBuyIn = room.initialBuyIns.find(i => i.username === username);
-    if (existingBuyIn) {
-      // 中途离场再买入：累加总带入，供结算兜底
-      existingBuyIn.buyIn = (existingBuyIn.buyIn || 0) + finalBuyIn;
-      if (nickname) existingBuyIn.nickname = nickname;
+    if (segmentBuyIn > 0) {
+      const existingBuyIn = room.initialBuyIns.find(i => i.username === username);
+      if (existingBuyIn) {
+        existingBuyIn.buyIn = (existingBuyIn.buyIn || 0) + segmentBuyIn;
+        if (nickname) existingBuyIn.nickname = nickname;
+      } else {
+        room.initialBuyIns.push({ username, nickname, buyIn: segmentBuyIn });
+      }
     } else {
-      room.initialBuyIns.push({ username, nickname, buyIn: finalBuyIn });
+      // topUp=0 纯带回：确保 initialBuyIns 仍有该用户条目（开局已有则不动）
+      const existingBuyIn = room.initialBuyIns.find(i => i.username === username);
+      if (!existingBuyIn) {
+        room.initialBuyIns.push({ username, nickname, buyIn: 0 });
+      } else if (nickname) {
+        existingBuyIn.nickname = nickname;
+      }
     }
     getLogger(room)?.logSeat('sit', {
-      username, nickname, seatId, seatNo: targetIdx + 1, buyIn: finalBuyIn,
-      spectating: inHand,
+      username, nickname, seatId, seatNo: targetIdx + 1, buyIn: stack,
+      spectating: inHand, carry, topUp,
     });
     // 对局进行中入座：只占座观战，下局开始才纳入 players
-    return { ok: true, seats: room.seats, spectating: inHand };
+    return { ok: true, seats: room.seats, spectating: inHand, carry, topUp, stack };
   }
 
   if (room.gameStarted) return { ok: false, msg: '游戏进行中，请等待下一局' };
@@ -396,23 +426,18 @@ function standUp(code, username) {
     if (inHand && p && !p.folded) {
       return { ok: false, msg: '对局进行中，请先弃牌或等待本局结束' };
     }
-    // 保留筹码档案（累加本段，避免再入座后覆盖丢失）
-    const standFinal = p
-      ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0))
-      : (room.seats[idx].buyIn || 0);
-    const standBuyIn = p?.totalBuyIn || room.seats[idx].buyIn || 0;
-    accumulateChipArchive(room, {
-      username,
-      nickname: p?.nickname || room.seats[idx].nickname,
-      totalBuyIn: standBuyIn,
-      finalPot: standFinal,
-      initialBuyIn: standBuyIn,
+    // 保留筹码档案（累加本段；含观战占座 / pending 加簸）
+    const archived = archivePlayerOrSeat(room, username, {
+      player: p || null,
+      clearSeat: true,
+      rebuild: true,
     });
-    room.seats[idx] = null;
-    if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
     getLogger(room)?.logSeat('stand', {
-      username, nickname: room.chipArchives[username]?.nickname, seatId: SEAT_IDS[idx], seatNo: idx + 1,
-      finalPot: standFinal,
+      username,
+      nickname: archived?.nickname || p?.nickname || room.chipArchives[username]?.nickname,
+      seatId: SEAT_IDS[idx],
+      seatNo: idx + 1,
+      finalPot: archived?.finalPot,
     });
     return { ok: true, seats: room.seats };
   }
@@ -528,23 +553,14 @@ function checkDisconnectTimeouts() {
         }
       }
 
-      // 归档筹码并清空座位，避免幽灵座位继续发牌
-      if (p) {
-        accumulateChipArchive(room, {
-          username,
-          nickname: p.nickname,
-          totalBuyIn: p.totalBuyIn || 0,
-          finalPot: p.pot + (p.committed || 0) + (p.pendingBuyIn || 0),
-          initialBuyIn: p.totalBuyIn || 0,
-        });
-      }
-      const seatIdx = room.seats.findIndex(seat => seat && seat.username === username);
-      if (seatIdx >= 0) room.seats[seatIdx] = null;
-      if (engine.rebuildPlayersFromSeats) engine.rebuildPlayersFromSeats(room.seats);
+      // 归档筹码并清空座位（有 engine 玩家或仅观战占座均可）
+      const archived = archivePlayerOrSeat(room, username, {
+        player: p || null,
+        clearSeat: true,
+        rebuild: true,
+      });
       getLogger(room)?.logDisconnect('timeout_remove', username, {
-        finalPot: p
-          ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0))
-          : room.chipArchives?.[username]?.finalPot,
+        finalPot: archived?.finalPot,
       });
 
       delete room.disconnected[username];
@@ -596,28 +612,31 @@ setInterval(checkDisconnectTimeouts, 10000);
 
 function broadcastRoom(room) {
   if (!room) return;
-  const payload = {
-    code: room.code, name: room.name, host: room.host,
-    durationMinutes: room.durationMinutes,
-    endsAt: room.endsAt || null,
-    extendedMinutes: room.extendedMinutes || 0,
-    minBuyIn: room.minBuyIn,
-    members: room.members.map(m => ({
-      username: m.username, nickname: m.nickname, ready: m.ready,
-      disconnected: !!room.disconnected[m.username],
-    })),
-    seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
-    gameStarted: room.gameStarted,
-    gameRound: room.gameRound,
-    paused: !!room.paused,
-    endAfterHand: !!room.endAfterHand,
-    disbanded: !!room.disbanded,
-  };
-  if (room.disbanded && room.lastSettlement) {
-    payload.lastSettlement = room.lastSettlement;
+  for (const ws of room.ws) {
+    if (ws.readyState !== 1) continue;
+    const payload = {
+      code: room.code, name: room.name, host: room.host,
+      durationMinutes: room.durationMinutes,
+      endsAt: room.endsAt || null,
+      extendedMinutes: room.extendedMinutes || 0,
+      minBuyIn: room.minBuyIn,
+      members: room.members.map(m => ({
+        username: m.username, nickname: m.nickname, ready: m.ready,
+        disconnected: !!room.disconnected[m.username],
+      })),
+      seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
+      gameStarted: room.gameStarted,
+      gameRound: room.gameRound,
+      paused: !!room.paused,
+      endAfterHand: !!room.endAfterHand,
+      disbanded: !!room.disbanded,
+      myCarryChips: getCarryChips(room, ws.username),
+    };
+    if (room.disbanded && room.lastSettlement) {
+      payload.lastSettlement = room.lastSettlement;
+    }
+    ws.send(JSON.stringify({ type: 'room_update', room: payload }));
   }
-  const data = JSON.stringify({ type: 'room_update', room: payload });
-  for (const ws of room.ws) { if (ws.readyState === 1) ws.send(data); }
 }
 
 function getSeatIds() { return SEAT_IDS; }
@@ -634,4 +653,5 @@ module.exports = {
   getSeatIds,
   setRoomMapChangeHandler, destroyEmptyRoom, scheduleEmptyRoomDestroy, cancelEmptyRoomDestroy,
   accumulateChipArchive,
+  archivePlayerOrSeat,
 };

@@ -18,9 +18,8 @@ const {
   markDisconnected, handleReconnect,
   ALLOWED_DURATIONS, ALLOWED_EXTEND, normalizeDurationMinutes,
   setRoomMapChangeHandler, destroyEmptyRoom,
-  accumulateChipArchive,
 } = require('./rooms');
-const { settlePlayerChips } = require('./chip-ledger');
+const { settlePlayerChips, archivePlayerOrSeat, bumpInitialBuyIn } = require('./chip-ledger');
 const {
   beginSettleAnimGate,
   clearSettleAnimGate,
@@ -160,6 +159,16 @@ function sendToRoom(room, data) {
   }
 }
 
+function roomMemberName(room, username) {
+  if (!room || !username) return username || '玩家';
+  const seat = (room.seats || []).find((s) => s && s.username === username);
+  if (seat?.nickname) return seat.nickname;
+  const member = (room.members || []).find((m) => m.username === username);
+  if (member?.nickname) return member.nickname;
+  const p = room.game?.getPlayer?.(username);
+  return p?.nickname || username;
+}
+
 function sendToUser(room, username, data) {
   const msg = JSON.stringify(data);
   for (const ws of room.ws) {
@@ -219,21 +228,13 @@ function runTurnTimeout(room, actor) {
   if (!s2.playerInactivity[actor]) s2.playerInactivity[actor] = Date.now();
 
   if (Date.now() - s2.playerInactivity[actor] >= INACTIVITY_LIMIT) {
-    const seatIdx = room.seats.findIndex(seat => seat && seat.username === actor);
-    if (seatIdx >= 0) {
-      const seat = room.seats[seatIdx];
-      const segFinal = p.pot + (p.committed || 0) + (p.pendingBuyIn || 0);
-      const segBuy = p.totalBuyIn || seat.buyIn || 0;
-      accumulateChipArchive(room, {
-        username: actor,
-        nickname: p.nickname || seat.nickname,
-        totalBuyIn: segBuy,
-        finalPot: segFinal,
-        initialBuyIn: segBuy,
-      });
-      room.seats[seatIdx] = null;
-      if (engine2.rebuildPlayersFromSeats) engine2.rebuildPlayersFromSeats(room.seats);
-      getLogger(room)?.logDisconnect('timeout_remove', actor, { finalPot: segFinal });
+    const archived = archivePlayerOrSeat(room, actor, {
+      player: p || null,
+      clearSeat: true,
+      rebuild: true,
+    });
+    if (archived) {
+      getLogger(room)?.logDisconnect('timeout_remove', actor, { finalPot: archived.finalPot });
       sendToRoom(room, { type: 'player_timeout', username: actor });
       broadcastRoom(room);
     }
@@ -443,21 +444,15 @@ function getSeatedEnginePlayers(room) {
 function archiveAndRemoveSeat(room, username) {
   const engine = room.game;
   const p = engine?.getPlayer(username);
-  const seatIdx = room.seats.findIndex(s => s && s.username === username);
-  if (seatIdx < 0 && !p) return;
-  const segFinal = p ? (p.pot + (p.committed || 0) + (p.pendingBuyIn || 0)) : 0;
-  const segBuy = p?.totalBuyIn || room.seats[seatIdx]?.buyIn || 0;
-  accumulateChipArchive(room, {
-    username,
-    nickname: p?.nickname || room.seats[seatIdx]?.nickname || username,
-    totalBuyIn: segBuy,
-    finalPot: segFinal,
-    initialBuyIn: segBuy,
+  const archived = archivePlayerOrSeat(room, username, {
+    player: p || null,
+    clearSeat: true,
+    rebuild: false,
   });
-  if (seatIdx >= 0) room.seats[seatIdx] = null;
+  if (!archived && !p) return;
   if (p) p.eliminated = true;
   getLogger(room)?.logDisconnect('broke_exit', username, {
-    finalPot: segFinal,
+    finalPot: archived?.finalPot,
   });
 }
 
@@ -546,6 +541,7 @@ function handleBrokePlayerDecision(room, username, choice, amount) {
       const applied = p.pendingBuyIn;
       p.pendingBuyIn = 0;
       p.eliminated = false;
+      bumpInitialBuyIn(room, username, p.nickname, applied);
       getLogger(room)?.logBuyIn(username, applied, {
         pending: false, applied: true, reason: 'buyin_decision_continue',
       });
@@ -609,6 +605,7 @@ function distributeLeftoverPotAtGameEnd(room) {
     if (!room.chipArchives) room.chipArchives = {};
     if (room.chipArchives[username]) return room.chipArchives[username];
     const initial = (room.initialBuyIns || []).find((i) => i.username === username);
+    // 无档案时用 initialBuyIns 兜底建档；已有离座档案不得覆盖 totalBuyIn
     room.chipArchives[username] = {
       username,
       nickname: initial?.nickname || username,
@@ -623,10 +620,12 @@ function distributeLeftoverPotAtGameEnd(room) {
   Object.entries(shares).forEach(([username, amount]) => {
     if (amount <= 0) return;
     const p = engine.getPlayer(username);
-    if (p) {
+    const seatedNow = seated.has(username);
+    if (p && seatedNow) {
       p.pot += amount;
       return;
     }
+    // 已离座（含庄家余数）：只加 finalPot，不改 totalBuyIn，避免重复记本金
     ensureArchive(username).finalPot += amount;
   });
 
@@ -773,6 +772,7 @@ function startNextRoundAuto(room, opts = {}) {
       p.totalBuyIn = (p.totalBuyIn || 0) + p.pendingBuyIn;
       p.pendingBuyIn = 0;
       p.eliminated = false;
+      bumpInitialBuyIn(room, p.username, p.nickname, applied);
       getLogger(room)?.logBuyIn(p.username, applied, {
         pending: false, applied: true, reason: 'next_round_apply',
       });
@@ -1156,23 +1156,24 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
         bettingDone = engine.checkBettingDone();
       }
     }
-    if (p) {
-      const segFinal = p.pot + (p.committed || 0) + (p.pendingBuyIn || 0);
-      const segBuy = p.totalBuyIn || 0;
-      accumulateChipArchive(room, {
-        username,
-        nickname: p.nickname,
-        totalBuyIn: segBuy,
-        finalPot: segFinal,
-        initialBuyIn: segBuy,
-      });
+    const archived = archivePlayerOrSeat(room, username, {
+      player: p || null,
+      clearSeat: false, // leaveRoom 会清座位
+      rebuild: false,
+    });
+    if (archived) {
       getLogger(room)?.logDisconnect('leave', username, {
-        finalPot: segFinal,
+        finalPot: archived.finalPot,
       });
     }
   }
 
   const result = leaveRoom(req.params.code, username);
+  sendToRoom(room, {
+    type: 'player_left',
+    username,
+    nickname: req.user.nickname || username,
+  });
   // 离座后立刻从引擎玩家列表移除，避免幽灵座位继续发牌
   if (room.game && room.game.rebuildPlayersFromSeats) {
     room.game.rebuildPlayersFromSeats(room.seats);
@@ -1209,6 +1210,12 @@ app.post('/api/rooms/:code/stand', authMiddleware, (req, res) => {
   const result = standUp(req.params.code, req.user.username);
   if (!result.ok) return res.json(result);
   const room = roomsByCode.get(req.params.code);
+  const nickname = roomMemberName(room, req.user.username);
+  sendToRoom(room, {
+    type: 'player_stand',
+    username: req.user.username,
+    nickname,
+  });
   broadcastRoom(room);
   if (room?.game) broadcastRoundState(room);
   res.json(result);
@@ -1354,7 +1361,11 @@ wss.on('connection', (ws) => {
         // 如果是从断线恢复，通知其他玩家
         if (wasDisconnected) {
           getLogger(room)?.logDisconnect('reconnect', payload.username);
-          sendToRoom(room, { type: 'player_reconnected', username: payload.username });
+          sendToRoom(room, {
+            type: 'player_reconnected',
+            username: payload.username,
+            nickname: roomMemberName(room, payload.username),
+          });
         }
       } else if (room.gameStarted && room.game) {
         // idle 间隙也补一份私有状态，避免刷新后只剩桌布
@@ -1661,8 +1672,14 @@ wss.on('connection', (ws) => {
       const room = roomsByCode.get(ws.currentRoomCode);
       if (room) {
         room.ws.delete(ws);
+        const nickname = roomMemberName(room, ws.username);
         // 标记断线而非直接移除
         markDisconnected(ws.currentRoomCode, ws.username);
+        sendToRoom(room, {
+          type: 'player_disconnected',
+          username: ws.username,
+          nickname,
+        });
         broadcastRoom(room);
       }
     }
