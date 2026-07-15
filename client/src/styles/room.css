@@ -170,7 +170,7 @@
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
-/* 右侧对局记录抽屉 */
+/* 左侧对局记录抽屉 */
 .tea-room .history-drawer {
   position: absolute;
   inset: 0;
@@ -180,7 +180,7 @@
 .tea-room .history-drawer-edge {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   z-index: 41;
   pointer-events: auto;
@@ -189,7 +189,7 @@
 .tea-room .history-drawer-handle {
   position: absolute;
   top: 42%;
-  right: 0;
+  left: 0;
   z-index: 43;
   pointer-events: auto;
   touch-action: none;
@@ -202,11 +202,11 @@
   min-height: 88px;
   padding: 10px 0;
   border: 1px solid rgba(224, 192, 106, 0.35);
-  border-right: 0;
-  border-radius: 10px 0 0 10px;
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
   background: rgba(18, 28, 22, 0.92);
   color: rgba(224, 192, 106, 0.9);
-  box-shadow: -2px 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.35);
   cursor: grab;
   transform: translateY(-50%);
   user-select: none;
@@ -243,7 +243,7 @@
 .tea-room .history-drawer-panel {
   position: absolute;
   top: 52px;
-  right: 0;
+  left: 0;
   bottom: 72px;
   z-index: 42;
   pointer-events: auto;
@@ -253,10 +253,10 @@
   overflow: hidden;
   background: rgba(16, 22, 18, 0.96);
   border: 1px solid rgba(224, 192, 106, 0.28);
-  border-right: 0;
-  border-radius: 12px 0 0 12px;
-  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.45);
-  transform: translate3d(100%, 0, 0);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45);
+  transform: translate3d(-100%, 0, 0);
   transition: transform 0.22s ease;
   touch-action: pan-y;
 }
@@ -986,12 +986,11 @@
   flex: unset;
   background: transparent;
   isolation: isolate;
-  /* 不能 hidden：会裁掉木边 box-shadow */
+  /* 保留舞台元素的定位上下文，最终裁切策略由响应式规则统一控制。 */
   overflow: visible;
 }
 
-/* 大圆角矩形桌：左右/顶内收，头像在桌外
-   注意：不要在 inset 后再写 top/left:auto，否则会把桌面尺寸压成 0 */
+/* 透明定位容器：仅承载牌堆与底池，不再绘制桌布或桌框。 */
 .tea-room .table-felt.tea-felt,
 .tea-room .table-felt.tea-felt.pixi-backed {
   position: absolute !important;
@@ -1007,30 +1006,17 @@
   min-height: 0 !important;
   max-height: none !important;
   transform: none !important;
-  border-radius: 40px !important;
-  background:
-    radial-gradient(ellipse 80% 70% at 50% 42%, #31855c 0%, var(--felt-mid) 40%, var(--felt) 70%, var(--felt-deep) 100%) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
   border: 0 !important;
-  box-shadow:
-    0 0 0 6px var(--wood),
-    0 0 0 8px var(--wood-dark),
-    0 0 0 9px rgba(224, 192, 106, 0.18),
-    inset 0 12px 28px rgba(255, 255, 255, 0.06),
-    inset 0 -20px 36px rgba(0, 0, 0, 0.4),
-    0 12px 24px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: none !important;
   display: block !important;
   z-index: 1;
 }
 
 .tea-room .table-felt.tea-felt::before {
-  content: "";
-  display: block;
-  position: absolute;
-  inset: 10px;
-  border-radius: 32px;
-  border: 1px solid rgba(224, 192, 106, 0.14);
-  box-shadow: none;
-  pointer-events: none;
+  content: none;
+  display: none;
 }
 
 .tea-room .table-felt.tea-felt::after {
@@ -1045,6 +1031,25 @@
 .tea-room .table-felt.tea-felt.pixi-backed::before,
 .tea-room .table-felt.tea-felt.pixi-backed::after {
   display: none;
+}
+
+.tea-room .room-compliance-note {
+  position: absolute;
+  left: 50%;
+  top: 90%;
+  z-index: 2;
+  width: max-content;
+  max-width: 96%;
+  transform: translate(-50%, -50%);
+  color: rgba(244, 240, 230, 0.34);
+  font-size: clamp(8px, 2.2cqw, 10px);
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* 底池（相对 felt，table-layout.json） */
@@ -1167,7 +1172,7 @@
   position: absolute;
   /* 相对 felt，table-layout.json deckCenter */
   left: 49.74%;
-  top: 32.32%;
+  top: 48%;
   transform: translate(-50%, -50%);
   width: 42px;
   height: 58px;
@@ -1252,35 +1257,15 @@
   gap: 1px;
   pointer-events: none;
 }
-
 .tea-room .seat-slot.tea-seat .avatar-wrap,
 .tea-room .seat-slot.tea-seat .name,
 .tea-room .seat-slot.tea-seat .stack,
-.tea-room .seat-slot.tea-seat .timer-num,
 .tea-room .seat-slot.tea-seat .empty-seat {
   pointer-events: auto;
 }
 
 .tea-room .seat-slot.seat-hidden {
   display: none !important;
-}
-
-.tea-room .timer-num {
-  order: 0;
-  min-height: 14px;
-  font-size: 0.62rem;
-  font-weight: 900;
-  color: var(--timer);
-  text-shadow: 0 0 6px rgba(46, 230, 200, 0.55), 0 1px 2px #000;
-  line-height: 1;
-  opacity: 0;
-  transform: scale(0.9);
-}
-
-.tea-room .timer-num.show,
-.tea-room .seat-slot.turn .timer-num {
-  opacity: 1;
-  transform: scale(1);
 }
 
 .tea-room .seat-name.name {
@@ -1554,21 +1539,6 @@
   transform: translate(-50%, calc(-100% - 2px));
   margin-bottom: 0;
 }
-.tea-room .seat-slot.seat-vpos-0 .timer-num {
-  position: absolute;
-  left: 50%;
-  top: 38px;
-  transform: translateX(-50%) scale(0.9);
-  z-index: 7;
-}
-.tea-room .seat-slot.seat-vpos-0 .timer-num.show,
-.tea-room .seat-slot.seat-vpos-0.turn .timer-num {
-  transform: translateX(-50%) scale(1);
-}
-.tea-room .seat-slot.seat-vpos-0.turn .seat-stack-row.stack {
-  margin-top: 14px;
-}
-
 /* 取消旧布局对底中自己座位的抬高 */
 .tea-room .seat-vpos-4.is-me,
 .tea-room .self-seat-slot,
@@ -1587,15 +1557,6 @@
   pointer-events: none;
   display: flex;
 }
-
-.tea-room .public-cards-vpos-0 { top: 8.87%; left: 43.72%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-1 { top: 19.42%; left: 69.8%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-2 { top: 43.26%; left: 69.45%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-3 { top: 66.99%; left: 69.44%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-4 { top: 82.95%; left: 45.11%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-5 { top: 67.45%; left: 19.15%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-6 { top: 43.42%; left: 18.79%; right: auto; bottom: auto; transform: none; }
-.tea-room .public-cards-vpos-7 { top: 19.26%; left: 18.62%; right: auto; bottom: auto; transform: none; }
 
 .tea-room .public-cards .card-slot {
   width: 34px;
@@ -2166,19 +2127,6 @@
 }
 
 /* ========== 茶馆风格 · 阶段 C 倒计时 / 敲火焰 ========== */
-.tea-room .seat-slot.turn.urgent .timer-num {
-  color: var(--timer-warn);
-  text-shadow: 0 0 6px rgba(255, 138, 61, 0.6);
-}
-.tea-room .seat-slot.turn.critical .timer-num {
-  color: var(--timer-crit);
-  text-shadow: 0 0 8px rgba(255, 77, 77, 0.7);
-  animation: tea-pulse-num 0.5s ease infinite;
-}
-@keyframes tea-pulse-num {
-  50% { transform: scale(1.12); }
-}
-
 .tea-room .seat-slot.turn.urgent .timer-ring-fg {
   filter: drop-shadow(0 0 3px rgba(255, 138, 61, 0.7));
 }
@@ -2213,6 +2161,9 @@
 .tea-room .self-timer.critical .label {
   color: var(--timer-crit);
   animation: tea-pulse-num 0.5s ease infinite;
+}
+@keyframes tea-pulse-num {
+  50% { transform: scale(1.12); }
 }
 .tea-room .self-timer.urgent .fill {
   background: linear-gradient(90deg, #e07020, var(--timer-warn));
@@ -2366,36 +2317,39 @@
   display: none !important;
 }
 
-/* ========== 自检修复：HUD 压缩 / 空座 / 木边可见 ========== */
+/* HUD 的最终尺寸只由内容和可用视口决定，不保留固定最小高度。 */
 .tea-room .tea-hud {
-  padding: 2px 10px max(4px, var(--safe-b));
-  flex-shrink: 0;
+  --hand-card-h: clamp(48px, 8.3dvh, 70px);
+  padding: 3px 8px max(4px, var(--safe-b));
+  min-height: 0;
   max-height: none;
-  /* timer(~22) + self-row + hand(70) + bar(44) + 间距；安全区只走 padding-bottom */
-  min-height: calc(22px + 36px + 70px + 44px + 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .tea-room .tea-hud .self-row {
-  margin-bottom: 2px;
-  min-height: 32px;
+  position: relative;
+  min-height: 44px;
+  margin: 0;
+  padding-right: 48px;
   flex-shrink: 0;
 }
 
-.tea-room .tea-hud .my-hand-area {
-  margin-bottom: 4px !important;
-  min-height: 70px !important;
-  height: 70px !important;
+.tea-room .tea-hud .my-hand-area,
+.tea-room .tea-hud .my-hand,
+.tea-room .tea-hud .tea-split-hand,
+.tea-room .tea-hud .tea-split-hand.tea-split-row {
+  min-height: var(--hand-card-h) !important;
+  height: var(--hand-card-h) !important;
+  margin: 0 !important;
+  gap: 3px;
 }
 
-.tea-room .tea-hud .my-hand {
-  min-height: 70px !important;
-  height: 70px !important;
-  gap: 4px;
-}
-
-.tea-room .tea-hud .my-hand .card-slot {
-  width: 48px !important;
-  height: 70px !important;
+.tea-room .tea-hud .my-hand .card-slot,
+.tea-room .tea-hud .tea-split-hand .card-slot {
+  width: calc(var(--hand-card-h) * 0.68) !important;
+  height: var(--hand-card-h) !important;
 }
 
 .tea-room .tea-bar {
@@ -2502,10 +2456,541 @@
   box-shadow: 0 0 8px rgba(46, 230, 200, 0.4) !important;
 }
 
-/* 舞台允许木边阴影溢出到左右 */
+/* 页面与舞台的基础裁切边界。 */
 .tea-room.tea-room {
-  overflow: hidden; /* 整页仍裁切，但舞台内可见木边 */
+  overflow: hidden;
 }
 .tea-room .tea-stage {
   overflow: visible !important;
 }
+
+/* ========== 2026 手机牌桌响应式收口 ========== */
+.room-page.tea-room {
+  height: 100svh;
+  height: 100dvh;
+  min-height: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background:
+    radial-gradient(85% 50% at 50% 8%, rgba(57, 123, 88, 0.42), transparent 68%),
+    linear-gradient(180deg, #122e23 0%, #081b14 62%, #06110d 100%);
+}
+
+.tea-room .tea-stage,
+.tea-room .game-area.tea-stage {
+  --public-card-h: clamp(24px, 9.5cqh, 50px);
+  --public-card-w: calc(var(--public-card-h) * 0.68);
+  --public-row-half: calc(var(--public-card-w) + 1px);
+  --public-bet-offset: clamp(19px, calc(4.75cqh + 7px), 32px);
+  --seat-avatar-size: clamp(28px, 8.5cqh, 38px);
+  --seat-slot-width: clamp(44px, 14cqw, 54px);
+  --seat-stack-reserve: 16px;
+  --seat-card-gap: clamp(8px, 2cqh, 14px);
+  --seat-side-gap: clamp(8px, 2.5cqw, 14px);
+  --card-bet-gap: 5px;
+  --seat-bet-reserve: 20px;
+  container-type: size;
+  overflow: hidden !important;
+  margin: 0;
+  padding: 2px 0;
+}
+
+.tea-room .table-felt.tea-felt,
+.tea-room .table-felt.tea-felt.pixi-backed {
+  top: 7% !important;
+  left: 14% !important;
+  width: 72% !important;
+  height: 80% !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 牌组尺寸统一；各方向在下方按靠座位的外沿锚定。 */
+.tea-room .public-cards {
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  gap: 2px;
+}
+.tea-room .public-cards-vpos-0 {
+  left: 50%;
+  right: auto;
+  top: calc(3% + var(--seat-avatar-size) + var(--seat-stack-reserve) + var(--seat-card-gap));
+  bottom: auto;
+  transform: translateX(-50%);
+}
+.tea-room .tea-seat-bet-v0 {
+  left: 50%;
+  right: auto;
+  top: calc(3% + var(--seat-avatar-size) + var(--seat-stack-reserve) + var(--seat-card-gap) + var(--public-card-h) + var(--card-bet-gap));
+  bottom: auto;
+  transform: translateX(-50%);
+}
+.tea-room .public-cards-vpos-1,
+.tea-room .tea-seat-bet-v1 { left: 76.02%; top: 27.25%; }
+.tea-room .public-cards-vpos-2,
+.tea-room .tea-seat-bet-v2 { left: 75.67%; top: 51.09%; }
+.tea-room .public-cards-vpos-3,
+.tea-room .tea-seat-bet-v3 { left: 75.66%; top: 74.82%; }
+.tea-room .public-cards-vpos-4,
+.tea-room .tea-seat-bet-v4 { left: 51.33%; top: 90.78%; }
+.tea-room .public-cards-vpos-5,
+.tea-room .tea-seat-bet-v5 { left: 25.37%; top: 75.28%; }
+.tea-room .public-cards-vpos-6,
+.tea-room .tea-seat-bet-v6 { left: 25.01%; top: 51.25%; }
+.tea-room .public-cards-vpos-7,
+.tea-room .tea-seat-bet-v7 { left: 24.84%; top: 27.09%; }
+
+/* 左右座位按牌组外沿留安全区，牌变宽时只向舞台中央生长。 */
+.tea-room .public-cards-vpos-1,
+.tea-room .public-cards-vpos-2,
+.tea-room .public-cards-vpos-3 {
+  left: auto;
+  right: calc(var(--seat-slot-width) + var(--seat-side-gap));
+  transform: translateY(-50%);
+}
+.tea-room .tea-seat-bet-v1,
+.tea-room .tea-seat-bet-v2,
+.tea-room .tea-seat-bet-v3 {
+  left: calc(100% - var(--seat-slot-width) - var(--seat-side-gap) - var(--public-row-half));
+}
+.tea-room .public-cards-vpos-5,
+.tea-room .public-cards-vpos-6,
+.tea-room .public-cards-vpos-7 {
+  left: calc(var(--seat-slot-width) + var(--seat-side-gap));
+  right: auto;
+  transform: translateY(-50%);
+}
+.tea-room .tea-seat-bet-v5,
+.tea-room .tea-seat-bet-v6,
+.tea-room .tea-seat-bet-v7 {
+  left: calc(var(--seat-slot-width) + var(--seat-side-gap) + var(--public-row-half));
+}
+
+/* 观战视角的底部座位反向锚定，四张牌向上扩展，不压住座位信息。 */
+.tea-room.view-spectator .public-cards-vpos-4 {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(10.66% + var(--seat-card-gap) + var(--seat-bet-reserve) + var(--card-bet-gap));
+  transform: translateX(-50%);
+}
+.tea-room.view-spectator .tea-seat-bet-v4 {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(10.66% + var(--seat-card-gap));
+  transform: translateX(-50%);
+}
+.tea-room .tea-seat-bet {
+  transform: translate(-50%, var(--public-bet-offset));
+}
+.tea-room .tea-seat-bet-v0 {
+  transform: translateX(-50%);
+}
+/* 自己的下注标记独立放在舞台底部，避开 HUD 和悬浮倒计时。 */
+.tea-room.view-player .tea-seat-bet-v4 {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: max(30px, 5cqh);
+  z-index: 12;
+  transform: translateX(-50%);
+}
+.tea-room .public-cards .card-slot {
+  width: var(--public-card-w) !important;
+  height: var(--public-card-h) !important;
+}
+.tea-room .public-cards.split2,
+.tea-room .public-cards.split-display {
+  gap: 2px;
+}
+.tea-room .public-cards.split2 .pub-row,
+.tea-room .public-cards.row4 {
+  gap: 2px;
+}
+
+/* 座位随舞台高度压缩，避免矮屏上相邻座位互相覆盖。 */
+.tea-room .seat-slot,
+.tea-room .seat-slot.tea-seat {
+  --seat-avatar: var(--seat-avatar-size);
+  width: var(--seat-slot-width);
+  min-width: 0;
+}
+.tea-room .seat-vpos-0 { top: 3%; }
+.tea-room .seat-vpos-1,
+.tea-room .seat-vpos-2,
+.tea-room .seat-vpos-3 { left: auto; right: 0; }
+.tea-room .seat-vpos-5,
+.tea-room .seat-vpos-6,
+.tea-room .seat-vpos-7 { left: 0; }
+.tea-room .seat-slot .avatar-wrap-outer,
+.tea-room .seat-slot .avatar-wrap,
+.tea-room .seat-slot .avatar,
+.tea-room .empty-avatar,
+.tea-room .empty-avatar.seat-num-avatar,
+.tea-room .empty-seat .empty-avatar {
+  width: var(--seat-avatar) !important;
+  height: var(--seat-avatar) !important;
+  min-width: var(--seat-avatar) !important;
+  min-height: var(--seat-avatar) !important;
+}
+.tea-room .seat-slot .timer-ring {
+  width: calc(var(--seat-avatar) + 10px) !important;
+  height: calc(var(--seat-avatar) + 10px) !important;
+}
+.tea-room .seat-name.name,
+.tea-room .stack,
+.tea-room .seat-stack-row.stack {
+  font-size: clamp(0.48rem, 1.7cqh, 0.58rem);
+}
+
+/* 自己的倒计时悬浮在 HUD 上沿，不再占据一整行。 */
+.tea-room .self-timer {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -19px;
+  z-index: 9;
+  min-height: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 9px;
+  background: rgba(5, 18, 13, 0.9);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.25);
+}
+.tea-room .self-timer .tip { display: none; }
+.tea-room .self-timer .label { min-width: 20px; }
+.tea-room .extend-turn-btn {
+  min-height: 28px;
+  padding: 2px 9px;
+}
+
+.tea-room .room-message-button,
+.tea-room .spectator-message-button {
+  border: 1px solid rgba(224, 192, 106, 0.42);
+  background: linear-gradient(180deg, rgba(35, 79, 57, 0.96), rgba(13, 38, 27, 0.98));
+  color: #ead28a;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.34), inset 0 1px rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tea-room .room-message-button {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.tea-room .room-message-button svg,
+.tea-room .spectator-message-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tea-room .spectator-message-button {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  z-index: 28;
+  min-height: 44px;
+  border-radius: 22px;
+  padding: 0 14px 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* 房间消息只在牌桌舞台内部飞行，不拦截任何游戏操作。 */
+.tea-room .barrage-layer {
+  position: absolute;
+  inset: 7% 0 9%;
+  z-index: 18;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint;
+}
+.tea-room .barrage-message {
+  position: absolute;
+  left: 100%;
+  top: var(--barrage-top);
+  width: max-content;
+  max-width: 78vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 226, 171, 0.22);
+  background: rgba(5, 17, 13, 0.7);
+  color: #fff8e8;
+  font-size: clamp(0.68rem, 3.1vw, 0.82rem);
+  line-height: 1.2;
+  text-shadow: 0 1px 2px #000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+  will-change: transform;
+  animation: room-barrage-rtl var(--barrage-duration) linear var(--barrage-delay) both;
+}
+.tea-room .barrage-message strong { color: #f1d984; }
+@keyframes room-barrage-rtl {
+  from { transform: translate3d(12px, -50%, 0); }
+  to { transform: translate3d(var(--barrage-travel), -50%, 0); }
+}
+.tea-room .room-message-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 右侧仅保留快捷消息抽屉。 */
+.tea-room .quick-message-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 48;
+  pointer-events: none;
+}
+.tea-room .quick-message-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.48);
+  pointer-events: auto;
+  transition: opacity 0.12s linear;
+}
+.tea-room .quick-message-edge {
+  position: absolute;
+  top: calc(46px + var(--safe-t));
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  pointer-events: auto;
+  touch-action: none;
+}
+.tea-room .quick-message-panel {
+  position: absolute;
+  top: auto;
+  right: 0;
+  bottom: max(10px, var(--safe-b));
+  width: min(340px, 86vw);
+  height: min(420px, calc(100% - 64px - var(--safe-t) - var(--safe-b)));
+  max-height: 420px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 0;
+  background:
+    radial-gradient(80% 28% at 50% 0%, rgba(58, 116, 84, 0.22), transparent),
+    rgba(12, 27, 20, 0.985);
+  border-left: 1px solid rgba(224, 192, 106, 0.28);
+  border-radius: 12px 0 0 12px;
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.46);
+  transform: translate3d(100%, 0, 0);
+  transition: transform 0.22s ease;
+  touch-action: pan-y;
+}
+.tea-room .quick-message-drawer.is-open .quick-message-panel {
+  transform: translate3d(0, 0, 0);
+}
+.tea-room .quick-message-header {
+  min-height: 58px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(224, 192, 106, 0.15);
+}
+.tea-room .quick-message-header > div { display: grid; gap: 2px; }
+.tea-room .quick-message-header strong { color: #f0d782; font-size: 0.94rem; }
+.tea-room .quick-message-header span { color: rgba(244, 240, 230, 0.52); font-size: 0.66rem; }
+.tea-room .quick-message-close {
+  min-width: 54px;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(224, 192, 106, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e9d288;
+}
+.tea-room .quick-message-list {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(6 * 48px + 10px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 10px 4px;
+}
+.tea-room .quick-message-preset {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  background: transparent;
+  color: rgba(255, 252, 240, 0.92);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.tea-room .quick-message-preset:active { background: rgba(224, 192, 106, 0.09); }
+.tea-room .quick-message-empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  color: rgba(244, 240, 230, 0.46);
+  font-size: 0.76rem;
+}
+.tea-room .quick-message-compose {
+  margin-top: auto;
+  padding: 10px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-top: 1px solid rgba(224, 192, 106, 0.14);
+  background: rgba(6, 18, 13, 0.96);
+}
+.tea-room .quick-message-input-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.tea-room .quick-message-input-wrap input {
+  width: 100%;
+  height: 44px;
+  padding: 0 48px 0 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(224, 192, 106, 0.24);
+  background: rgba(255, 255, 255, 0.055);
+  color: #fffaf0;
+  outline: none;
+  font: inherit;
+  font-size: 16px;
+}
+.tea-room .quick-message-input-wrap input:focus { border-color: rgba(224, 192, 106, 0.62); }
+.tea-room .quick-message-input-wrap span {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(244, 240, 230, 0.38);
+  font-size: 0.6rem;
+  pointer-events: none;
+}
+.tea-room .quick-message-compose > button {
+  width: 58px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #e1c46f, #b99738);
+  color: #1b1a11;
+  font-weight: 800;
+}
+.tea-room .quick-message-compose > button:disabled { opacity: 0.38; }
+
+.tea-room .menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 对局记录固定在左，底部跟随是否存在 HUD。 */
+.tea-room .history-drawer-edge,
+.tea-room .history-drawer-handle,
+.tea-room .history-drawer-panel { right: auto; }
+.tea-room .history-drawer-panel {
+  top: calc(46px + var(--safe-t));
+  bottom: 0;
+}
+.tea-room .history-drawer-panel .history-header .history-close {
+  width: auto;
+  margin: 0;
+}
+
+@media (max-height: 700px) {
+  .tea-room .tea-top { padding-top: calc(3px + var(--safe-t)); }
+  .tea-room .tea-menu-btn { width: 30px; height: 30px; }
+  .tea-room .tea-hud { --hand-card-h: clamp(48px, 8dvh, 58px); gap: 2px; }
+  .tea-room .tea-stage {
+    --public-card-h: clamp(24px, 9cqh, 40px);
+    --public-bet-offset: clamp(19px, calc(4.5cqh + 7px), 27px);
+    --seat-avatar-size: clamp(27px, 8cqh, 34px);
+  }
+  .tea-room .msg-feed { height: 2.6em; max-height: 2.6em; }
+}
+
+@media (max-height: 590px), (orientation: landscape) and (max-height: 520px) {
+  .tea-room .tea-code { font-size: 0.78rem; }
+  .tea-room .tea-meta { display: none; }
+  .tea-room .tea-phase { max-width: 34vw; padding: 1px 6px; }
+  .tea-room .tea-hud { --hand-card-h: 48px; }
+  .tea-room .seat-slot,
+  .tea-room .seat-slot.tea-seat { gap: 0; }
+  .tea-room .seat-name.name,
+  .tea-room .stack,
+  .tea-room .seat-stack-row.stack { font-size: 0.46rem; }
+  .tea-room .tea-stage {
+    --public-card-h: clamp(22px, 9cqh, 32px);
+    --public-bet-offset: clamp(18px, calc(4.5cqh + 7px), 23px);
+    --seat-avatar-size: 27px;
+  }
+  .tea-room .table-felt.tea-felt,
+  .tea-room .table-felt.tea-felt.pixi-backed { top: 8% !important; height: 78% !important; }
+  .tea-room .barrage-layer { inset-block: 5%; }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .tea-room .tea-stage { --seat-avatar-size: 24px; }
+  .tea-room .seat-vpos-1,
+  .tea-room .seat-vpos-7 { top: 16%; }
+  .tea-room .seat-vpos-2,
+  .tea-room .seat-vpos-6 { top: 43%; }
+  .tea-room .seat-vpos-3,
+  .tea-room .seat-vpos-5 { top: 70%; }
+  .tea-room .deck-pile { left: 35%; }
+  .tea-room .tea-pot { left: 65%; }
+}
+
+@media (max-width: 340px) {
+  .tea-room .tea-top { padding-inline: 7px; }
+  .tea-room .tea-brand { gap: 4px; }
+  .tea-room .tea-phase { max-width: 30vw; }
+  .tea-room .tea-top-tools { gap: 3px; }
+  .tea-room .tea-hud { padding-inline: 6px; }
+  .tea-room .tea-bar { gap: 4px; }
+  .tea-room .tea-pill { padding-inline: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tea-room .barrage-message {
+    left: 50%;
+    top: var(--barrage-top);
+    transform: translate(-50%, -50%);
+    animation: room-barrage-fade min(var(--barrage-duration), 4s) ease var(--barrage-delay) both;
+  }
+  @keyframes room-barrage-fade {
+    0%, 100% { opacity: 0; transform: translate(-50%, -50%); }
+    12%, 82% { opacity: 1; transform: translate(-50%, -50%); }
+  }
+  .tea-room .quick-message-panel,
+  .tea-room .history-drawer-panel { transition-duration: 0.01ms; }
+}
+
+/* 中央纵向安全带：避开顶部牌/喊价，并保证牌堆与底池始终分离。 */
+.tea-room .tea-pot { top: 70%; }

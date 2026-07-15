@@ -1,10 +1,4 @@
-Playing cards (PNG)
-Source: https://github.com/htdebeer/SVG-cards
-License: LGPL-2.1 — see cards/LICENSE-LGPL.txt
-Original: David Bellot SVG-cards; maintained by Huub de Beer
-Used: 32-card subset + maroon back + red joker (PNG 2x renders)
-
-Casino Audio (MP3, converted from Kenney OGG)
+Casino Audio (OGG)
 Author: Kenney (www.kenney.nl)
 Source: https://kenney.nl/assets/casino-audio
 License: CC0 (attribution optional)

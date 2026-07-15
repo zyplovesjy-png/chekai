@@ -5,9 +5,8 @@ import {
 import { Link } from 'react-router-dom';
 import type { Card } from '@/stores/gameStore';
 import { CardView } from '@/pages/room/components/CardView';
-import { cardBackUrl } from '@/pages/room/cardAssets';
 import {
-  BET_CENTERS,
+  CARD_CENTERS,
   CARDS_BOX,
   FELT,
 } from '@/pages/room/tableLayout';
@@ -31,10 +30,10 @@ function mockCard(id: string, rank: string, suit: string, color: string): Card {
   return { id, color, rank, cnName: rank, cnChar: rank, cardPoints: 0, order: 0, suit };
 }
 const SAMPLE: Card[] = [
-  mockCard('bA', 'A', 'black', 'black'),
-  mockCard('rK', 'K', 'red', 'red'),
-  mockCard('b7', '7', 'black', 'black'),
-  mockCard('r3', '3', 'red', 'red'),
+  mockCard('bA', 'A', '♠', 'black'),
+  mockCard('rK', 'K', '♥', 'red'),
+  mockCard('b7', '7', '♣', 'black'),
+  mockCard('r3', '3', '♦', 'red'),
 ];
 
 function rectToBox(el: DOMRect, parent: DOMRect): Box | null {
@@ -491,7 +490,7 @@ export default function CardsBetsLayoutLabPage() {
 
       <div className="layout-lab-preview">
         <div
-          className="lab-phone room-page tea-room cards-bets-lab"
+          className={`lab-phone room-page tea-room cards-bets-lab${compareMode ? ' lab-phase-compare' : ''}`}
           ref={phoneRef}
           style={{
             ['--lab-pub-w' as string]: `${cardSlot.w}px`,
@@ -523,10 +522,10 @@ export default function CardsBetsLayoutLabPage() {
               <i className="lab-resize" onPointerDown={(e) => onPointerDown(e, 'felt', 'resize')} />
               <div className="deck-pile" aria-hidden>
                 <div className="deck-stack">
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
                 </div>
                 <div className="deck-count">26</div>
               </div>
@@ -542,7 +541,7 @@ export default function CardsBetsLayoutLabPage() {
                 left: `${box.x * 100}%`,
                 top: `${box.y * 100}%`,
               };
-              const bet = BET_CENTERS[v];
+              const bet = CARD_CENTERS[v];
               return (
                 <div key={v}>
                   <div

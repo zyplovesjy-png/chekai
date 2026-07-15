@@ -168,6 +168,34 @@ run('banker rotates in the same order as player actions', () => {
   assert.strictEqual(engine.players[engine.state.bankerIdx].username, 'p3');
 });
 
+run('player seated mid-hand becomes active and clears waiting flag next round', () => {
+  const room = { code: 'JOIN', minBuyIn: 100, seats: Array(8).fill(null) };
+  room.seats[0] = makeSeat('p1', 200);
+  room.seats[1] = makeSeat('p2', 200);
+  const engine = new GameEngine(room);
+  assert.strictEqual(engine.init(room.seats), true);
+  engine.state.bankerIdx = 0;
+  assert.strictEqual(engine.startNewRound(), true);
+
+  room.seats[2] = { ...makeSeat('late', 200), joiningNextRound: true };
+  engine.rebuildPlayersFromSeats(room.seats);
+  assert.strictEqual(player(engine, 'late').joiningNextRound, true);
+  assert.strictEqual(
+    engine.getPublicState().players.find((p) => p.username === 'late').joiningNextRound,
+    true,
+  );
+
+  engine.state.phase = 'done';
+  assert.strictEqual(engine.startNewRound(), true);
+  assert.strictEqual(player(engine, 'late').joiningNextRound, false);
+  assert.strictEqual(room.seats[2].joiningNextRound, false);
+  assert.strictEqual(
+    engine.getPublicState().players.find((p) => p.username === 'late').joiningNextRound,
+    false,
+  );
+  assert.strictEqual(player(engine, 'late').hand.length, 2);
+});
+
 run('street opener ties break by first-round speak order (not near-banker)', () => {
   // 座位逆时针 a b c d e，b 庄 → 第一轮 cdeab；d、a 并列最大 → d 先 → deabc
   const room = { code: 'ORD', minBuyIn: 100, seats: Array(8).fill(null) };
@@ -318,6 +346,83 @@ run('rest_cross refunds fold money from earlier street', () => {
   assertConservation(engine, baseline);
 });
 
+run('fourth-card all-rest refunds prior shouts and earlier fold payments', () => {
+  const engine = makeEngine([500, 500, 500], [500]);
+  const baseline = totalChips(engine);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
+
+  // 两张牌阶段四人跟到50。
+  assert.ok(engine.doCall(p2, 50));
+  assert.ok(engine.doSee(p3));
+  assert.ok(engine.doSee(p4));
+  assert.ok(engine.doSee(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+
+  // 第三张阶段抬到100，p4弃牌并实际支付此前累计的50，其余三人跟到100。
+  engine.dealThirdCard();
+  assert.ok(engine.doCall(p2, 100));
+  assert.ok(engine.doSee(p3));
+  assert.ok(engine.doFold(p4));
+  assert.ok(engine.doSee(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+  assert.strictEqual(p4.foldPaid, 50);
+
+  // 第四张阶段全休：三名存活者的累计100和p4已付的50全部退回，只留底注。
+  engine.dealFourthCard();
+  assert.strictEqual(engine.canFoldNow(), false);
+  assert.ok(engine.doRest(p1));
+  assert.ok(engine.doRest(p2));
+  assert.ok(engine.doRest(p3));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'rest_cross' });
+  assert.deepStrictEqual([p1.committed, p2.committed, p3.committed, p4.foldPaid], [0, 0, 0, 0]);
+  assert.strictEqual(p4.pot, 500);
+  assert.strictEqual(engine.state.potPi, 10);
+  assert.strictEqual(engine.state.restMangoLevel, 1);
+
+  engine.state.phase = 'done';
+  assert.strictEqual(engine.startNewRound(), true);
+  assert.strictEqual(engine.state.potPi, 60); // 上局底注10 + 四人休芒40 + 新庄底注10
+  assert.strictEqual(engine.state.openingMango?.kind, 'rest');
+  assertConservation(engine, baseline);
+});
+
+run('sanhua player also pays next-round rest mango', () => {
+  const engine = makeEngine([300, 300, 300], [300]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
+
+  assert.ok(engine.doCall(p2, 20));
+  assert.ok(engine.doSee(p3));
+  assert.ok(engine.doSee(p4));
+  assert.ok(engine.doSee(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+  engine.dealThirdCard();
+
+  p2.hand = [
+    { cnName: '梅十', order: 10, suit: '♣' },
+    { cnName: '苕十', order: 10, suit: '♥' },
+    { cnName: '斧头', order: 11, suit: '♠' },
+  ];
+  engine.state.toAct = ['p2', 'p3', 'p4', 'p1'];
+  assert.ok(engine.doShowSanhua(p2));
+  assert.ok(engine.doRest(p3));
+  assert.ok(engine.doRest(p4));
+  assert.ok(engine.doRest(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'rest_cross' });
+
+  const p2BeforeNext = p2.pot;
+  engine.state.phase = 'done';
+  assert.strictEqual(engine.startNewRound(), true);
+  assert.strictEqual(p2.pot, p2BeforeNext - 10);
+  assert.strictEqual(engine.state.openingMango?.kind, 'rest');
+  assert.strictEqual(engine.state.openingMango?.exempt, null);
+});
+
 run('mango chain continues through bet-and-fold and exempts only the winner', () => {
   const engine = makeEngine([200, 100, 120]);
   const baseline = totalChips(engine);
@@ -347,8 +452,7 @@ run('mango chain continues through bet-and-fold and exempts only the winner', ()
   assertConservation(engine, baseline);
 });
 
-run('mango stacks on white-fold win then clears only without fold-win', () => {
-  // 休芒后下一局无人喊价弃牌 → 仍揍芒（与赢家已下注后别人丢相同）
+run('first-street white folds without a bet do not trigger beat mango', () => {
   const engine = makeEngine([500, 500, 500]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -366,29 +470,10 @@ run('mango stacks on white-fold win then clears only without fold-win', () => {
   assert.strictEqual(engine.state.restMangoLevel, 1); // 开局仍按 1 级收取
   assert.ok(engine.state.potPi >= 30); // 含芒果
 
-  // 无人喊价直接弃牌 → 揍芒（赢家未操作）
+  // 发完两张牌后无人喊价直接弃牌：赢家收池，但不揍芒，并清掉旧芒链。
   engine.doFold(p3);
   engine.doFold(p1);
   assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_folded', winner: 'p2' });
-  assert.strictEqual(engine.state.restMangoLevel, 2);
-  assert.strictEqual(engine.state.beatMangoWinner, 'p2');
-
-  engine.state.phase = 'done';
-  engine.rotateBanker();
-  assert.strictEqual(engine.startNewRound(), true);
-  assert.strictEqual(engine.state.openingMango?.level, 2);
-
-  // 面对加价再弃 → 不揍芒，芒清零
-  // Round 3: banker=p3, toAct=[p1,p2,p3]
-  const openAmt = engine.state.minBet || 50;
-  assert.ok(engine.doCall(p1, openAmt));
-  assert.ok(engine.doRaise(p2, openAmt * 2));
-  assert.ok(engine.doFold(p1)); // 已入池后面对加价再弃
-  assert.strictEqual(engine.state.foldFacedRaise, true);
-  assert.ok(engine.doFold(p3));
-  const done = engine.checkBettingDone();
-  assert.strictEqual(done.done, true);
-  assert.strictEqual(done.reason, 'all_folded');
   assert.strictEqual(engine.state.restMangoLevel, 0);
   assert.strictEqual(engine.state.beatMangoWinner, null);
 
@@ -399,7 +484,7 @@ run('mango stacks on white-fold win then clears only without fold-win', () => {
   assert.strictEqual(engine.state.openingMango, null);
 });
 
-run('beat mango stacks then clears after fold-facing-raise', () => {
+run('first-street raise followed by folds still triggers beat mango', () => {
   const engine = makeEngine([500, 500, 500]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -419,24 +504,25 @@ run('beat mango stacks then clears after fold-facing-raise', () => {
   assert.strictEqual(engine.state.openingMango?.kind, 'beat');
   assert.strictEqual(engine.state.beatMangoWinner, null); // 收取后清空免罚标记
 
-  // 面对加价再弃 → 不揍芒，清零
+  // 新规则不再排除“面对加价后弃牌”：只要发生在第一轮、最终由有喊价者独赢，就揍芒。
   // Round 2: banker=p2, toAct=[p3,p1,p2]
   const openAmt = engine.state.minBet || 50;
   assert.ok(engine.doCall(p3, openAmt));
   assert.ok(engine.doRaise(p1, openAmt * 2));
-  assert.ok(engine.doFold(p3)); // 已入池后面对加价再弃
-  assert.strictEqual(engine.state.foldFacedRaise, true);
+  assert.ok(engine.doFold(p3));
   assert.ok(engine.doFold(p2));
   const done = engine.checkBettingDone();
   assert.strictEqual(done.done, true);
   assert.strictEqual(done.reason, 'all_folded');
-  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(done.winner, 'p1');
+  assert.strictEqual(engine.state.restMangoLevel, 2);
+  assert.strictEqual(engine.state.beatMangoWinner, 'p1');
 
   engine.state.phase = 'done';
   engine.rotateBanker();
   assert.strictEqual(engine.startNewRound(), true);
-  assert.strictEqual(engine.state.potPi, 10);
-  assert.strictEqual(engine.state.openingMango, null);
+  assert.strictEqual(engine.state.openingMango?.level, 2);
+  assert.strictEqual(engine.state.openingMango?.kind, 'beat');
 });
 
 run('a betting round cannot finish until every active player has matched', () => {
@@ -488,7 +574,7 @@ run('raising across streets raises the cumulative shout total', () => {
   assert.strictEqual(engine.state.potPi, 10);
 });
 
-run('only one non-knocked player who is matched skips further betting', () => {
+run('knocked players do not skip the third-card speaking round', () => {
   const engine = makeEngine([100, 120, 300]);
   // p2 knock 120, p3 call 120, p1 knock 90
   engine.doKnock(player(engine, 'p2'));
@@ -496,29 +582,101 @@ run('only one non-knocked player who is matched skips further betting', () => {
   engine.doKnock(player(engine, 'p1')); // 敲90 < 120，不算加注
   const done = engine.checkBettingDone();
   assert.strictEqual(done.done, true);
-  assert.strictEqual(done.reason, 'all_in_showdown');
+  assert.strictEqual(done.reason, 'all_matched');
+  engine.dealThirdCard();
+  assert.strictEqual(engine.state.phase, 'betting2');
+  assert.deepStrictEqual(new Set(engine.state.toAct), new Set(['p1', 'p2', 'p3']));
+  assert.strictEqual(player(engine, 'p1').actedThisRound, false);
+  assert.strictEqual(player(engine, 'p2').actedThisRound, false);
 });
 
-run('all players knocking moves to all_in_showdown', () => {
-  const engine = makeEngine([100, 120, 100]);
-  engine.doKnock(player(engine, 'p2'));
-  engine.doKnock(player(engine, 'p3'));
-  engine.doKnock(player(engine, 'p1'));
-  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_in_showdown' });
-
-  engine.dealRemainingCardsToShowdown();
-  assert.strictEqual(engine.state.phase, 'selecting');
-  assert.deepStrictEqual(engine.players.map((p) => p.hand.length), [4, 4, 4]);
-});
-
-run('server all-in showdown resolver deals remaining cards', () => {
+run('all knocked players skip remaining streets and enter selecting', () => {
   const engine = makeEngine([100, 120, 100]);
   engine.doKnock(player(engine, 'p2'));
   engine.doKnock(player(engine, 'p3'));
   engine.doKnock(player(engine, 'p1'));
   const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_in_showdown' });
+
   assert.strictEqual(resolveAllInShowdown(engine, done), true);
   assert.strictEqual(engine.state.phase, 'selecting');
+  assert.deepStrictEqual(engine.players.map((p) => p.hand.length), [4, 4, 4]);
+  assert.deepStrictEqual(engine.state.toAct, []);
+});
+
+run('mixed knocked and funded players do not invoke automatic all-in resolver', () => {
+  const engine = makeEngine([100, 120, 300]);
+  engine.doKnock(player(engine, 'p2'));
+  engine.doSee(player(engine, 'p3'));
+  engine.doKnock(player(engine, 'p1'));
+  const done = engine.checkBettingDone();
+  assert.strictEqual(done.reason, 'all_matched');
+  assert.strictEqual(resolveAllInShowdown(engine, done), false);
+  assert.strictEqual(engine.state.phase, 'betting1');
+});
+
+run('short knocked player may rest on the third-card round and joins rest mango', () => {
+  const engine = makeEngine([300, 20, 300], [300]);
+  const baseline = totalChips(engine);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
+
+  assert.ok(engine.doKnock(p2));
+  assert.ok(engine.doSee(p3));
+  assert.ok(engine.doSee(p4));
+  assert.ok(engine.doSee(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+
+  engine.dealThirdCard();
+  assert.strictEqual(p2.allIn, true);
+  assert.ok(engine.state.toAct.includes('p2'));
+  assert.ok(engine.doRest(p2));
+  assert.ok(engine.doRest(p3));
+  assert.ok(engine.doRest(p4));
+  assert.ok(engine.doRest(p1));
+
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'rest_cross' });
+  assert.strictEqual(p2.committed, 0);
+  assert.strictEqual(p2.pot, 20);
+  assert.strictEqual(engine.state.restMangoLevel, 1);
+  assertConservation(engine, baseline);
+});
+
+run('repeated short knock preserves previous high price and next raise floor', () => {
+  const engine = makeEngine([300, 20, 300], [300]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
+
+  // 两张牌：p2 敲20，其余玩家跟到20。
+  assert.ok(engine.doKnock(p2));
+  assert.ok(engine.doSee(p3));
+  assert.ok(engine.doSee(p4));
+  assert.ok(engine.doSee(p1));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+
+  // 第三张：p2 再敲仍是20；p3返到80，其他人响应，最高累计价变为80。
+  engine.dealThirdCard();
+  assert.ok(engine.doKnock(p2));
+  assert.strictEqual(engine.state.currentBet, 20);
+  assert.ok(engine.doRaise(p3, 80));
+  assert.ok(engine.doSee(p4));
+  assert.ok(engine.doSee(p1));
+  assert.ok(engine.doKnock(p2));
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+  assert.strictEqual(engine.state.lastFinalBet, 80);
+
+  // 第四张：p2 再敲20时，桌面有效基准仍为80；其他玩家返必须至少160。
+  engine.dealFourthCard();
+  assert.ok(engine.state.toAct.includes('p2'));
+  assert.ok(engine.doKnock(p2));
+  assert.strictEqual(engine.state.currentBet, 80);
+  assert.strictEqual(engine.state.minBet, 160);
+  assert.strictEqual(engine.doRaise(p3, 159), null);
+  assert.ok(engine.doRaise(p3, 160));
 });
 
 run('declared sanhua voids shout without paying; opening pot stays', () => {
@@ -605,8 +763,10 @@ run('dual sanhua show leaves pot for next round without mango', () => {
   assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
   engine.dealThirdCard();
 
-  engine.doFold(p3);
-  engine.doFold(p4);
+  // 第3张牌后必须先有人下注，丙丁才允许弃牌。
+  assert.ok(engine.doCall(p1, engine.state.minBet));
+  assert.ok(engine.doFold(p3));
+  assert.ok(engine.doFold(p4));
   assert.strictEqual(engine.checkBettingDone().done, false); // 甲乙仍在
 
   p1.hand = [
@@ -646,7 +806,7 @@ run('dual sanhua show leaves pot for next round without mango', () => {
   assertConservation(engine, baseline);
 });
 
-run('knock on hole cards then auto-deal grants sanhua offer', () => {
+run('all-knock auto deal grants a sanhua offer in selecting', () => {
   const engine = makeEngine([300, 300, 300]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -660,12 +820,12 @@ run('knock on hole cards then auto-deal grants sanhua offer', () => {
   engine.advanceToAct();
   assert.ok(engine.doKnock(p1));
   engine.advanceToAct();
-  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_in_showdown' });
-
-  resolveAllInShowdown(engine, { done: true, reason: 'all_in_showdown' });
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_in_showdown' });
+  assert.strictEqual(resolveAllInShowdown(engine, done), true);
   assert.strictEqual(engine.state.phase, 'selecting');
 
-  // 连发后构成三花十
+  // 自动补满四张后成三花，配牌前仍可摊。
   p2.hand = [
     { cnName: '梅十', order: 10, suit: '♣' },
     { cnName: '苕十', order: 10, suit: '♥' },
@@ -674,8 +834,8 @@ run('knock on hole cards then auto-deal grants sanhua offer', () => {
   ];
   engine.grantSanhuaOffersAfterAutoDeal();
 
-  assert.strictEqual(p2.sanhuaOfferPending, true);
   assert.strictEqual(p2.allIn, true);
+  assert.strictEqual(p2.sanhuaOfferPending, true);
   assert.strictEqual(engine.canShowSanhua(p2), true);
   const shown = engine.doShowSanhua(p2);
   assert.ok(shown);
@@ -684,7 +844,7 @@ run('knock on hole cards then auto-deal grants sanhua offer', () => {
   assert.ok(!engine.state.activeIds.includes('p2'));
 });
 
-run('knock after third card without sanhua then fourth creates offer', () => {
+run('all players knock on third card then auto deal fourth and offer sanhua', () => {
   const engine = makeEngine([300, 300, 300]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -707,15 +867,13 @@ run('knock after third card without sanhua then fourth creates offer', () => {
   assert.ok(engine.doKnock(p2));
   assert.strictEqual(p2.sanhuaRevealLocked, false);
 
-  // 他人也敲 → 连发
-  engine.rebuildQueueAfter(p2);
-  engine.advanceToAct();
-  assert.ok(engine.doKnock(p3));
-  engine.rebuildQueueAfter(p3);
-  engine.advanceToAct();
+  // 其余玩家也全部敲/跟光后，直接补第4张进入配牌。
+  assert.ok(engine.doSee(p3));
   assert.ok(engine.doKnock(p1));
-  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_in_showdown' });
-  resolveAllInShowdown(engine, { done: true, reason: 'all_in_showdown' });
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_in_showdown' });
+  assert.strictEqual(resolveAllInShowdown(engine, done), true);
+  assert.strictEqual(engine.state.phase, 'selecting');
 
   p2.hand = [
     { cnName: '梅十', order: 10, suit: '♣' },
@@ -750,15 +908,18 @@ run('sanhua on third card then knock locks and no offer after deal', () => {
   assert.ok(engine.doKnock(p2));
   assert.strictEqual(p2.sanhuaRevealLocked, true);
 
-  engine.rebuildQueueAfter(p2);
-  engine.advanceToAct();
-  assert.ok(engine.doKnock(p3));
-  engine.rebuildQueueAfter(p3);
-  engine.advanceToAct();
+  assert.ok(engine.doSee(p3));
   assert.ok(engine.doKnock(p1));
-  resolveAllInShowdown(engine, { done: true, reason: 'all_in_showdown' });
+  const done = engine.checkBettingDone();
+  assert.deepStrictEqual(done, { done: true, reason: 'all_in_showdown' });
+  assert.strictEqual(resolveAllInShowdown(engine, done), true);
 
-  p2.hand.push({ cnName: '黑8', order: 8, suit: '♠' });
+  p2.hand = [
+    { cnName: '梅十', order: 10, suit: '♣' },
+    { cnName: '苕十', order: 10, suit: '♥' },
+    { cnName: '斧头', order: 11, suit: '♠' },
+    { cnName: '黑8', order: 8, suit: '♠' },
+  ];
   engine.grantSanhuaOffersAfterAutoDeal();
   assert.strictEqual(p2.sanhuaOfferPending, false);
   assert.strictEqual(engine.canShowSanhua(p2), false);
@@ -799,8 +960,8 @@ run('fold after bet still triggers beat mango', () => {
   assert.strictEqual(engine.state.beatMangoWinner, 'p2');
 });
 
-run('winner silent while others fold triggers beat mango', () => {
-  // 发两张后未下注，其他人全丢，赢家未操作 → 揍芒
+run('winner silent while others fold does not trigger beat mango', () => {
+  // 发两张后未下注，其他人全丢：赢家收池，但不揍芒。
   const engine = makeEngine([200, 200, 200]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -811,42 +972,38 @@ run('winner silent while others fold triggers beat mango', () => {
   const done = engine.checkBettingDone();
   assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p1' });
   assert.strictEqual(engine.state.roundHadBet, false);
-  assert.strictEqual(engine.state.restMangoLevel, 1);
-  assert.strictEqual(engine.state.beatMangoWinner, 'p1');
+  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(engine.state.beatMangoWinner, null);
 });
 
-run('matched then fold on next act still triggers beat mango', () => {
-  // 都跟平后，某人再丢（非面对加价）→ 揍芒
-  const engine = makeEngine([300, 300, 300]);
+run('third-card round forbids folding before anyone bets and all-rest refunds prior shouts', () => {
+  const engine = makeEngine([300, 300, 300], [300]);
+  const baseline = totalChips(engine);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
   const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
 
   engine.doCall(p2, 50);
   engine.doSee(p3);
+  engine.doSee(p4);
   engine.doSee(p1);
-  assert.strictEqual(engine.checkBettingDone().done, true);
-  // 进到发第三张后的下注：让非赢家先丢
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
   engine.dealThirdCard();
-  const winner = 'p1';
-  for (const u of [...engine.state.toAct]) {
-    if (u === winner) continue;
-    const p = player(engine, u);
-    if (!p.folded) engine.doFold(p);
-  }
-  // 若还剩赢家在 toAct 且只一人，结束
+
+  const opener = engine.getPlayer(engine.state.toAct[0]);
+  assert.strictEqual(engine.canFoldNow(), false);
+  assert.strictEqual(engine.doFold(opener), null);
+
+  engine.state.activeIds.forEach((id) => assert.ok(engine.doRest(player(engine, id))));
   const done = engine.checkBettingDone();
-  assert.strictEqual(done.done, true);
-  assert.strictEqual(done.reason, 'all_folded');
-  assert.strictEqual(done.winner, winner);
-  assert.ok((player(engine, 'p2').foldPaid || 0) > 0 || (player(engine, 'p3').foldPaid || 0) > 0);
-  assert.strictEqual(engine.state.foldFacedRaise, false);
+  assert.deepStrictEqual(done, { done: true, reason: 'rest_cross' });
+  assert.deepStrictEqual([p1.committed, p2.committed, p3.committed, p4.committed], [0, 0, 0, 0]);
   assert.strictEqual(engine.state.restMangoLevel, 1);
-  assert.strictEqual(engine.state.beatMangoWinner, winner);
+  assertConservation(engine, baseline);
 });
 
-run('fold facing raise does not trigger beat mango', () => {
-  // 甲喊 → 乙返 → 甲弃（面对加价）→ 不揍芒
+run('first-street fold facing a raise still triggers beat mango', () => {
   const engine = makeEngine([300, 300, 300]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -858,30 +1015,36 @@ run('fold facing raise does not trigger beat mango', () => {
   engine.doFold(p2);
   const done = engine.checkBettingDone();
   assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p3' });
-  assert.ok(engine.state.foldFacedRaise);
   assert.ok((player(engine, 'p2').foldPaid || 0) > 0);
-  assert.strictEqual(engine.state.restMangoLevel, 0);
-  assert.strictEqual(engine.state.beatMangoWinner, null);
+  assert.strictEqual(engine.state.restMangoLevel, 1);
+  assert.strictEqual(engine.state.beatMangoWinner, 'p3');
 });
 
-run('matched then fold after call still triggers beat mango', () => {
-  // 甲喊，乙白丢，丙跟后再丢（跟平后丢，非面对加价）→ 揍芒
-  const engine = makeEngine([300, 300, 300]);
+run('third-card bet-and-fold win does not trigger beat mango', () => {
+  const engine = makeEngine([300, 300, 300], [300]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
   const p3 = player(engine, 'p3');
+  const p4 = player(engine, 'p4');
 
-  engine.doCall(p2, 50);
-  engine.doFold(p3);
+  engine.doCall(p2, 20);
+  engine.doSee(p3);
+  engine.doSee(p4);
   engine.doSee(p1);
-  engine.doFold(p1);
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_matched' });
+  engine.dealThirdCard();
+
+  // 指定 p2 先开口；第3张牌后有人下注，其他人此时才允许丢。
+  engine.state.toAct = ['p2', 'p3', 'p4', 'p1'];
+  assert.ok(engine.doCall(p2, 40));
+  assert.strictEqual(engine.canFoldNow(), true);
+  assert.ok(engine.doFold(p3));
+  assert.ok(engine.doFold(p4));
+  assert.ok(engine.doFold(p1));
   const done = engine.checkBettingDone();
   assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p2' });
-  assert.ok((player(engine, 'p1').foldPaid || 0) > 0);
-  assert.strictEqual((player(engine, 'p3').foldPaid || 0), 0);
-  assert.strictEqual(engine.state.foldFacedRaise, false);
-  assert.strictEqual(engine.state.restMangoLevel, 1);
-  assert.strictEqual(engine.state.beatMangoWinner, 'p2');
+  assert.strictEqual(engine.state.restMangoLevel, 0);
+  assert.strictEqual(engine.state.beatMangoWinner, null);
 });
 
 /* ========== 结算场景（1.4 / 1.5） ========== */
@@ -1107,7 +1270,7 @@ run('scenario 12: full elements with fold money in pot', () => {
   assert.deepStrictEqual([p1.pot, p2.pot, p3.pot], [350, 180, 100]);
 });
 
-run('spec 2.2 standard shouting flow and skip street 3', () => {
+run('four-player cumulative shouting keeps knocked players for street 3', () => {
   const room = { code: 'T22', minBuyIn: 100, seats: Array(8).fill(null) };
   room.seats[0] = makeSeat('甲', 100);
   room.seats[1] = makeSeat('乙', 120);
@@ -1143,7 +1306,7 @@ run('spec 2.2 standard shouting flow and skip street 3', () => {
   eng.state.opener = '甲';
   eng.state.toAct = ['甲', '乙', '丁'].filter((u) => {
     const p = eng.getPlayer(u);
-    return p && !p.folded && !p.allIn;
+    return p && !p.folded && !p.eliminated;
   });
   assert.strictEqual(eng.state.minBet, 60);
 
@@ -1160,9 +1323,12 @@ run('spec 2.2 standard shouting flow and skip street 3', () => {
 
   const done = eng.checkBettingDone();
   assert.strictEqual(done.done, true);
-  assert.strictEqual(done.reason, 'all_in_showdown');
+  assert.strictEqual(done.reason, 'all_matched');
   assert.deepStrictEqual([甲.committed, 乙.committed, 丁.committed], [90, 120, 120]);
   assert.strictEqual(eng.state.potPi, 20);
+  eng.dealFourthCard();
+  assert.ok(eng.state.toAct.includes('甲'));
+  assert.ok(eng.state.toAct.includes('乙'));
   assertConservation(eng, baseline);
 });
 

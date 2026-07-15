@@ -114,8 +114,30 @@ html, body {
 }
 .auth-card {
   justify-content: center;
-  padding-top: calc(32px + var(--safe-top));
-  padding-bottom: calc(32px + var(--safe-bottom));
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+.login-compliance-ticker {
+  flex-shrink: 0;
+  overflow: hidden;
+  padding-top: var(--safe-top);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.08);
+  background: rgba(0, 0, 0, 0.22);
+}
+.login-compliance-ticker-track {
+  display: block;
+  width: max-content;
+  padding-left: 100vw;
+  white-space: nowrap;
+  color: rgba(168, 184, 168, 0.58);
+  font-size: 10px;
+  line-height: 24px;
+  letter-spacing: 0.04em;
+  animation: login-compliance-scroll 28s linear infinite;
+  will-change: transform;
+}
+@keyframes login-compliance-scroll {
+  to { transform: translateX(-100%); }
 }
 .auth-logo {
   font-size: 32px;
@@ -248,6 +270,37 @@ html, body {
   flex: 1;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+.site-icp-footer {
+  flex-shrink: 0;
+  padding: 10px 16px calc(10px + var(--safe-bottom));
+  border-top: 1px solid rgba(212, 175, 55, 0.12);
+  background: rgba(0, 0, 0, 0.22);
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.site-icp-footer a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.site-icp-footer a:hover,
+.site-icp-footer a:focus-visible {
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-compliance-ticker-track {
+    width: auto;
+    padding: 5px 12px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.45;
+    animation: none;
+    will-change: auto;
+  }
 }
 .lobby-actions { display: flex; gap: 12px; justify-content: center; margin-bottom: 16px; }
 .lobby-actions .btn { flex: 1; padding: 12px 0; font-size: 16px; }
@@ -574,6 +627,102 @@ html, body {
   color: var(--text-dim);
   margin: 8px 0;
 }
+.admin-quick-messages {
+  text-align: left;
+}
+.admin-quick-message-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.admin-quick-message-intro > span {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  color: var(--gold);
+  font-size: 12px;
+}
+.admin-quick-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-quick-message-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(212, 175, 55, 0.16);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.admin-quick-message-order {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--gold);
+  background: rgba(212, 175, 55, 0.1);
+  font-size: 12px;
+  font-weight: 700;
+}
+.admin-quick-message-field {
+  position: relative;
+  min-width: 0;
+}
+.admin-quick-message-field input {
+  width: 100%;
+  min-height: 42px;
+  padding-right: 52px;
+  font-size: 16px;
+}
+.admin-quick-message-field span {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-size: 10px;
+  pointer-events: none;
+}
+.admin-quick-message-actions {
+  display: flex;
+  gap: 5px;
+}
+.admin-quick-message-actions .btn {
+  min-width: 36px;
+  min-height: 38px;
+  padding-inline: 9px;
+}
+.admin-quick-message-status {
+  margin-top: 12px;
+  color: var(--gold);
+  font-size: 13px;
+}
+.admin-quick-message-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 0;
+  background: linear-gradient(180deg, transparent, var(--bg-card) 28%);
+}
+@media (max-width: 560px) {
+  .admin-quick-message-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .admin-quick-message-actions {
+    grid-column: 2;
+    justify-content: flex-end;
+  }
+}
 .record-meta {
   display: flex;
   flex-wrap: wrap;
@@ -768,5 +917,3 @@ html, body {
 .record-detail-body .history-player-name {
   color: var(--text);
 }
-
-

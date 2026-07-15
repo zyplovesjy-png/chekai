@@ -1,6 +1,6 @@
 /* Service Worker: shell + durable game-asset cache (logout does not clear). */
-const SHELL_CACHE = 'chekai-shell-v2';
-const GAME_CACHE = 'chekai-game-v1';
+const SHELL_CACHE = 'chekai-shell-v3';
+const GAME_CACHE = 'chekai-game-v2';
 const PRECACHE = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -42,7 +42,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Game cards/sounds: cache-first, persist across sessions / logout
+  // Game sounds: cache-first, persist across sessions / logout
   if (isGameAsset(url.pathname)) {
     event.respondWith(
       caches.open(GAME_CACHE).then(async (cache) => {

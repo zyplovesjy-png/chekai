@@ -59,16 +59,11 @@ const CARDS_CENTER_N = [
   { x: 0.2484, y: 0.2709 },
 ] as const;
 
-const BET_CENTER_N = [
-  { x: 0.4983, y: 0.1919 },
-  { x: 0.7566, y: 0.2925 },
-  { x: 0.7566, y: 0.5298 },
-  { x: 0.7566, y: 0.7723 },
-  { x: 0.5082, y: 0.7977 },
-  { x: 0.2508, y: 0.7723 },
-  { x: 0.2506, y: 0.5335 },
-  { x: 0.2489, y: 0.2912 },
-] as const;
+// 筹码动画终点跟随对应牌组；视觉标记的精确牌下间距由 CSS 按实际牌高计算。
+const BET_CENTER_N = CARDS_CENTER_N.map((point) => ({
+  x: point.x,
+  y: Math.min(0.97, point.y + 0.075),
+}));
 
 /** 动画 / 标记用中心点（相对 stage） */
 export const SEAT_CENTERS: Record<number, PctPoint> = Object.fromEntries(
@@ -83,16 +78,16 @@ export const BET_CENTERS: Record<number, PctPoint> = Object.fromEntries(
   BET_CENTER_N.map((p, i) => [i, { left: pct(p.x), top: pct(p.y) }]),
 );
 
-/** 牌堆 / 底池中心（相对 felt） */
-export const DECK_IN_FELT: PctPoint = { left: '49.74%', top: '32.32%' };
-export const POT_IN_FELT: PctPoint = { left: '49.74%', top: '50.17%' };
+/** 牌堆 / 底池中心（相对 felt，纵向留出独立安全带） */
+export const DECK_IN_FELT: PctPoint = { left: '49.74%', top: '48%' };
+export const POT_IN_FELT: PctPoint = { left: '49.74%', top: '70%' };
 
 /** 牌堆 / 底池中心（相对 stage，供 AnimatedLayer） */
 export const DECK_ON_STAGE: PctPoint = {
   left: pct(FELT.x + 0.4974 * FELT.w),
-  top: pct(FELT.y + 0.3232 * FELT.h),
+  top: pct(FELT.y + 0.48 * FELT.h),
 };
 export const POT_ON_STAGE: PctPoint = {
   left: pct(FELT.x + 0.4974 * FELT.w),
-  top: pct(FELT.y + 0.5017 * FELT.h),
+  top: pct(FELT.y + 0.7 * FELT.h),
 };

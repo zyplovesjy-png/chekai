@@ -8,7 +8,6 @@ import { Avatar } from '@/pages/room/components/PlayerSeat';
 import { CardView } from '@/pages/room/components/CardView';
 import { ActionBar } from '@/pages/room/components/ActionBar';
 import { RoomChromeIcons } from '@/components/AppChromeIcons';
-import { cardBackUrl } from '@/pages/room/cardAssets';
 import './layoutLab.css';
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -18,14 +17,18 @@ const STORAGE_KEY = 'chekai-client-layout-lab-v3';
 const NAMES = ['北', '东北', '东', '东南', '我', '西南', '西', '西北'];
 
 const BET_POS: Record<number, CSSProperties> = {
-  0: { left: '50%', top: '14%', transform: 'translate(-50%, -50%)' },
-  1: { left: '82%', top: '18%', transform: 'translate(-50%, -50%)' },
-  2: { left: '84%', top: '40%', transform: 'translate(-50%, -50%)' },
-  3: { left: '82%', top: '64%', transform: 'translate(-50%, -50%)' },
-  4: { left: '50%', top: '82%', transform: 'translate(-50%, -50%)' },
-  5: { left: '18%', top: '64%', transform: 'translate(-50%, -50%)' },
-  6: { left: '16%', top: '40%', transform: 'translate(-50%, -50%)' },
-  7: { left: '18%', top: '18%', transform: 'translate(-50%, -50%)' },
+  0: {
+    left: '50%',
+    top: 'calc(3% + var(--seat-avatar-size) + var(--seat-stack-reserve) + var(--seat-card-gap) + var(--public-card-h) + var(--card-bet-gap))',
+    transform: 'translateX(-50%)',
+  },
+  1: { left: 'calc(100% - var(--seat-slot-width) - var(--seat-side-gap) - var(--public-row-half))', top: '27.25%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  2: { left: 'calc(100% - var(--seat-slot-width) - var(--seat-side-gap) - var(--public-row-half))', top: '51.09%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  3: { left: 'calc(100% - var(--seat-slot-width) - var(--seat-side-gap) - var(--public-row-half))', top: '74.82%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  4: { left: '51.33%', top: '90.78%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  5: { left: 'calc(var(--seat-slot-width) + var(--seat-side-gap) + var(--public-row-half))', top: '75.28%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  6: { left: 'calc(var(--seat-slot-width) + var(--seat-side-gap) + var(--public-row-half))', top: '51.25%', transform: 'translate(-50%, var(--public-bet-offset))' },
+  7: { left: 'calc(var(--seat-slot-width) + var(--seat-side-gap) + var(--public-row-half))', top: '27.09%', transform: 'translate(-50%, var(--public-bet-offset))' },
 };
 
 function round4(n: number) {
@@ -38,10 +41,10 @@ function mockCard(id: string, rank: string, suit: string, color: string): Card {
   return { id, color, rank, cnName: rank, cnChar: rank, cardPoints: 0, order: 0, suit };
 }
 const MY_HAND: Card[] = [
-  mockCard('bQ1', 'Q', 'black', 'black'),
-  mockCard('r81', '8', 'red', 'red'),
-  mockCard('b31', '3', 'black', 'black'),
-  mockCard('bJ2', 'J', 'black', 'black'),
+  mockCard('bQ1', 'Q', '♠', 'black'),
+  mockCard('r81', '8', '♥', 'red'),
+  mockCard('b31', '3', '♣', 'black'),
+  mockCard('bJ2', 'J', '♠', 'black'),
 ];
 
 function rectToBox(el: DOMRect, parent: DOMRect): Box | null {
@@ -95,8 +98,8 @@ function applyBoxToDom(el: HTMLElement, box: Box, kind: 'felt' | 'hud' | 'bet' |
     el.style.transform = '';
     el.style.flexShrink = '0';
     el.style.height = h;
-    el.style.minHeight = '140px';
-    el.style.maxHeight = '55%';
+    el.style.minHeight = '0';
+    el.style.maxHeight = 'none';
     return;
   }
 
@@ -176,7 +179,8 @@ export default function LayoutLabPage() {
   /** 只有用户拖过的项才会写入；未写入的继续用现网 CSS */
   const [overrides, setOverrides] = useState<Overrides>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [barMode, setBarMode] = useState<'open' | 'raised' | 'split' | 'lobby' | 'idle'>('open');
+  const [barMode, setBarMode] = useState<'lobby' | 'dealing' | 'open' | 'raised' | 'split' | 'compare' | 'done' | 'idle'>('open');
+  const [seatCount, setSeatCount] = useState<2 | 4 | 8>(8);
   const [raiseAmount, setRaiseAmount] = useState('10');
   const [jsonText, setJsonText] = useState('');
   const dragRef = useRef<DragState | null>(null);
@@ -442,6 +446,24 @@ export default function LayoutLabPage() {
       canShowSanhua: false, selectedCount: 2, splitConfirmed: false,
       canHostStart: false, canReady: false, isReady: false,
     },
+    dealing: {
+      phase: 'dealing', isMyTurn: false, isBetting: false, betStarted: false,
+      currentBet: 0, minBet: 10, maxBet: 9999, playerChips: 200, playerRoundCommitted: 0,
+      canShowSanhua: false, selectedCount: 0, splitConfirmed: false,
+      canHostStart: false, canReady: false, isReady: false,
+    },
+    compare: {
+      phase: 'comparing', isMyTurn: false, isBetting: false, betStarted: false,
+      currentBet: 40, minBet: 10, maxBet: 9999, playerChips: 160, playerRoundCommitted: 40,
+      canShowSanhua: false, selectedCount: 0, splitConfirmed: true,
+      canHostStart: false, canReady: false, isReady: false,
+    },
+    done: {
+      phase: 'done', isMyTurn: false, isBetting: false, betStarted: false,
+      currentBet: 0, minBet: 10, maxBet: 9999, playerChips: 240, playerRoundCommitted: 0,
+      canShowSanhua: false, selectedCount: 0, splitConfirmed: false,
+      canHostStart: false, canReady: false, isReady: false,
+    },
     lobby: {
       phase: 'idle', isMyTurn: false, isBetting: false, betStarted: false,
       currentBet: 0, minBet: 10, maxBet: 9999, playerChips: 200, playerRoundCommitted: 0,
@@ -454,6 +476,16 @@ export default function LayoutLabPage() {
       canShowSanhua: false, selectedCount: 0, splitConfirmed: false,
       canHostStart: false, canReady: false, isReady: false,
     },
+  }[barMode];
+
+  const activeVisualSeats = seatCount === 2
+    ? [0, 4]
+    : seatCount === 4
+      ? [0, 2, 4, 6]
+      : [0, 1, 2, 3, 4, 5, 6, 7];
+  const phaseText = {
+    lobby: '等待开始', dealing: '发牌中', open: '第1轮', raised: '第1轮 · 喊价20',
+    split: '配牌中', compare: '比牌中', done: '本局结束', idle: '等待操作',
   }[barMode];
 
   const labClass = (id: string) =>
@@ -514,8 +546,19 @@ export default function LayoutLabPage() {
               <option value="open">开叫</option>
               <option value="raised">已抬</option>
               <option value="split">配牌</option>
+              <option value="dealing">发牌</option>
+              <option value="compare">比牌</option>
+              <option value="done">结束</option>
               <option value="lobby">开局</option>
               <option value="idle">等待</option>
+            </select>
+          </label>
+          <label>
+            在桌人数
+            <select value={seatCount} onChange={(e) => setSeatCount(Number(e.target.value) as 2 | 4 | 8)}>
+              <option value={2}>2 人</option>
+              <option value={4}>4 人</option>
+              <option value={8}>8 人</option>
             </select>
           </label>
         </div>
@@ -561,12 +604,12 @@ export default function LayoutLabPage() {
       </aside>
 
       <div className="layout-lab-preview">
-        <div className="room-page tea-room action-open lab-phone" ref={phoneRef}>
+        <div className={`room-page tea-room action-open lab-phone lab-phase-${barMode}`} ref={phoneRef}>
           <header className="tea-top">
             <div className="tea-brand">
               <span className="tea-code">LAB</span>
               <span className="tea-meta">布局实验室 · 客户端实样</span>
-              <span className="tea-phase">下注</span>
+              <span className="tea-phase">{seatCount}人 · {phaseText}</span>
             </div>
             <div className="tea-top-tools">
               <RoomChromeIcons />
@@ -598,10 +641,10 @@ export default function LayoutLabPage() {
               >
                 <span className="lab-tag">牌堆</span>
                 <div className="deck-stack" aria-hidden="true">
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                  <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
                 </div>
                 <div className="deck-count">28</div>
                 <i className="lab-resize" onPointerDown={(e) => onPointerDown(e, 'deck', 'resize')} />
@@ -621,7 +664,7 @@ export default function LayoutLabPage() {
               </div>
             </div>
 
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((v) => (
+            {activeVisualSeats.map((v) => (
               <div key={v}>
                 <div
                   className={`seat-slot seat-vpos-${v} tea-seat${v === 4 ? ' lab-show-self' : ''} ${labClass(`seat-${v}`)}`}
@@ -630,7 +673,6 @@ export default function LayoutLabPage() {
                   onPointerDown={(e) => onPointerDown(e, `seat-${v}`, 'move')}
                 >
                   <span className="lab-tag">座位{v}</span>
-                  <div className="timer-num show">&nbsp;</div>
                   <div className="seat-name name">{NAMES[v]}</div>
                   <div className="avatar-wrap-outer">
                     <Avatar nickname={NAMES[v]} size={38} />
@@ -643,14 +685,29 @@ export default function LayoutLabPage() {
                 </div>
 
                 <div
-                  className={`public-cards public-cards-vpos-${v} ${labClass(`cards-${v}`)}`}
+                  className={`public-cards public-cards-vpos-${v}${barMode === 'compare' ? ' split2' : ''} ${labClass(`cards-${v}`)}`}
                   data-lab-id={`cards-${v}`}
                   style={styleFor(`cards-${v}`)}
                   onPointerDown={(e) => onPointerDown(e, `cards-${v}`, 'move')}
                 >
                   <span className="lab-tag">公牌{v}</span>
-                  <div className="card-slot"><CardView card={MY_HAND[v % 4]} size="small" /></div>
-                  <div className="card-slot"><CardView faceDown size="small" /></div>
+                  {barMode === 'compare' ? (
+                    <>
+                      <div className="pub-row">
+                        <div className="card-slot"><CardView card={MY_HAND[v % 4]} size="small" /></div>
+                        <div className="card-slot"><CardView card={MY_HAND[(v + 1) % 4]} size="small" /></div>
+                      </div>
+                      <div className="pub-row">
+                        <div className="card-slot"><CardView card={MY_HAND[(v + 2) % 4]} size="small" /></div>
+                        <div className="card-slot"><CardView card={MY_HAND[(v + 3) % 4]} size="small" /></div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="card-slot"><CardView card={MY_HAND[v % 4]} size="small" /></div>
+                      <div className="card-slot"><CardView faceDown size="small" /></div>
+                    </>
+                  )}
                   <i className="lab-resize" onPointerDown={(e) => onPointerDown(e, `cards-${v}`, 'resize')} />
                 </div>
 
@@ -676,8 +733,8 @@ export default function LayoutLabPage() {
             style={overrides.hud ? {
               height: `${overrides.hud.h * 100}%`,
               flexShrink: 0,
-              minHeight: 140,
-              maxHeight: '55%',
+              minHeight: 0,
+              maxHeight: 'none',
               position: 'relative',
             } : { position: 'relative' }}
             onPointerDown={(e) => {
@@ -721,9 +778,13 @@ export default function LayoutLabPage() {
                 </div>
               </div>
               <div className="hint-mini private-guide">轮到你了</div>
+              <button type="button" className="room-message-button" aria-label="快捷消息">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" /></svg>
+              </button>
               <i className="lab-resize" onPointerDown={(e) => onPointerDown(e, 'selfRow', 'resize')} />
             </div>
 
+            {!['lobby', 'dealing'].includes(barMode) && (
             <div
               className={`my-hand-area ${labClass('myHand')}`}
               data-lab-id="myHand"
@@ -740,6 +801,7 @@ export default function LayoutLabPage() {
               </div>
               <i className="lab-resize" onPointerDown={(e) => onPointerDown(e, 'myHand', 'resize')} />
             </div>
+            )}
 
             <div
               className={`tea-action-root ${labClass('actionBar')}`}

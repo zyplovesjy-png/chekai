@@ -1,6 +1,7 @@
 /* ========== 房间系统：创建/加入/座位管理/游戏状态 ========== */
 const { attachLogger, getLogger } = require('./game-logger');
 const { accumulateChipArchive, reclaimChipArchive, getCarryChips, archivePlayerOrSeat } = require('./chip-ledger');
+const { getRoomExitBlockReason } = require('./room-exit-rules');
 
 // 内存存储所有房间
 const roomsByCode = new Map();
@@ -419,13 +420,10 @@ function standUp(code, username) {
 
   if (room.gameStarted && room.game) {
     const engine = room.game;
-    const phase = engine.state?.phase;
-    const inHand = ['betting1','betting2','betting3','dealing','selecting','comparing'].includes(phase);
     const p = engine.getPlayer(username);
     // 整场进行中：仅局间可起身；局中需已弃牌
-    if (inHand && p && !p.folded) {
-      return { ok: false, msg: '对局进行中，请先弃牌或等待本局结束' };
-    }
+    const exitBlockReason = getRoomExitBlockReason(room, username);
+    if (exitBlockReason) return { ok: false, msg: exitBlockReason };
     // 保留筹码档案（累加本段；含观战占座 / pending 加簸）
     const archived = archivePlayerOrSeat(room, username, {
       player: p || null,
@@ -543,7 +541,7 @@ function checkDisconnectTimeouts() {
       if (p && !p.folded && s.activeIds.includes(username) &&
           !['idle', 'done', 'gameover'].includes(s.phase)) {
         const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
-        const result = engine.doFold(p);
+        const result = engine.doFold(p, { force: true });
         if (result) {
           getLogger(room)?.logAction(engine, result, { timeout: true, before });
           const msg = JSON.stringify({ type: 'game_action', action: { ...result, timeout: true } });
@@ -569,13 +567,17 @@ function checkDisconnectTimeouts() {
       const done = engine.checkBettingDone();
       if (done.done && !['idle', 'done', 'gameover'].includes(s.phase)) {
         // 交给 server 侧统一处理（此处仅广播状态；server 的 interval 不直接调 handleBettingDone）
-        if (s.betRound === 1) {
+        if (done.reason === 'all_folded' || done.reason === 'all_sanhua' || done.reason === 'rest_cross') {
+          s.phase = 'done';
+          s.compareResult = { winner: done.winner || null, reason: done.reason };
+          broadcastRoundStateLocal(room);
+        } else if (done.reason === 'all_in_showdown') {
+          engine.dealRemainingCardsToShowdown();
+          broadcastRoundStateLocal(room);
+        } else if (s.betRound === 1) {
           setTimeout(() => { engine.dealThirdCard(); broadcastRoundStateLocal(room); }, 600);
         } else if (s.betRound === 2) {
           setTimeout(() => { engine.dealFourthCard(); broadcastRoundStateLocal(room); }, 600);
-        } else if (done.reason === 'all_folded' || done.reason === 'rest_cross') {
-          s.phase = 'done';
-          broadcastRoundStateLocal(room);
         } else {
           s.phase = 'selecting';
           broadcastRoundStateLocal(room);

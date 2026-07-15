@@ -42,15 +42,18 @@ function HistoryCard({ card, dealLabel }: { card: Card; dealLabel?: string }) {
 
 interface HistoryDrawerProps {
   roundHistory: RoundRecord[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
- * 右侧对局记录抽屉：
+ * 左侧对局记录抽屉：
  * - 左右拖 / 点击把手：开合
  * - 上下拖把手：调整把手高度（位置会记住）
  */
-export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
-  const [open, setOpen] = useState(false);
+export function HistoryDrawer({ roundHistory, open: controlledOpen, onOpenChange }: HistoryDrawerProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const [viewingRound, setViewingRound] = useState(-1);
   const [dragTx, setDragTx] = useState<number | null>(null);
   const [handleY, setHandleY] = useState(loadHandleY);
@@ -81,6 +84,12 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
 
   const displayTx = dragTx;
   const drawerDragging = dragTx != null;
+
+  const setOpen = useCallback((next: boolean | ((current: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(openRef.current) : next;
+    if (controlledOpen == null) setInternalOpen(value);
+    onOpenChange?.(value);
+  }, [controlledOpen, onOpenChange]);
 
   useEffect(() => {
     if (open) setViewingRound(-1);
@@ -124,11 +133,11 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
     }
 
     if (d.axis === 'x' || d.source === 'edge' || d.source === 'panel') {
-      const tx = Math.max(0, Math.min(w, d.originTx + dx));
-      setOpen(tx < w * (1 - SNAP));
+      const tx = Math.max(-w, Math.min(0, d.originTx + dx));
+      setOpen(tx > -w * (1 - SNAP));
     }
     setDragTx(null);
-  }, [panelWidth]);
+  }, [panelWidth, setOpen]);
 
   const beginDrag = (
     e: ReactPointerEvent,
@@ -140,7 +149,7 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      originTx: openRef.current ? 0 : w,
+      originTx: openRef.current ? 0 : -w,
       originHandleY: handleYRef.current,
       axis: 'undecided',
       source,
@@ -149,7 +158,7 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch { /* ignore */ }
     if (source !== 'handle') {
-      setDragTx(openRef.current ? 0 : w);
+      setDragTx(openRef.current ? 0 : -w);
     }
   };
 
@@ -195,7 +204,7 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
     if (d.axis !== 'x') return;
     e.preventDefault();
     const w = panelWidth();
-    setDragTx(Math.max(0, Math.min(w, d.originTx + dx)));
+    setDragTx(Math.max(-w, Math.min(0, d.originTx + dx)));
   };
 
   const onPointerUp = (e: ReactPointerEvent) => {
@@ -208,8 +217,8 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
   const idx = viewingRound === -1 ? defaultIdx : viewingRound;
   const rec = roundHistory[idx] || null;
   const w = panelWidth();
-  const liveTx = displayTx != null ? displayTx : open ? 0 : w;
-  const scrimOpacity = Math.max(0, 1 - liveTx / Math.max(1, w)) * 0.55;
+  const liveTx = displayTx != null ? displayTx : open ? 0 : -w;
+  const scrimOpacity = Math.max(0, 1 - Math.abs(liveTx) / Math.max(1, w)) * 0.55;
 
   return (
     <div
@@ -259,6 +268,7 @@ export function HistoryDrawer({ roundHistory }: HistoryDrawerProps) {
       <div
         ref={panelRef}
         className="history-drawer-panel"
+        inert={!open && !drawerDragging}
         style={drawerDragging && displayTx != null ? {
           transform: `translate3d(${displayTx}px, 0, 0)`,
           transition: 'none',

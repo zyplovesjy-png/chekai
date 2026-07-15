@@ -17,6 +17,8 @@ export interface GamePlayer {
   handCount: number;
   lastDelta: number;
   seat: string;
+  /** 对局中途入座，当前手仅观战；下手开始时由服务端清除。 */
+  joiningNextRound?: boolean;
   publicCards?: Card[];
   split?: {
     head: Card[];

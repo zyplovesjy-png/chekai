@@ -43,6 +43,16 @@ export default function LoginPage() {
   return (
     <div className="auth-body">
       <div className="auth-wrap">
+        <div
+          className="login-compliance-ticker"
+          role="note"
+          aria-label="本平台仅供内部非营利娱乐，积分仅作游戏记分，不具有货币或财产价值，不可充值、交易或兑换。严禁任何线上线下财物结算及任何形式赌博，未成年人请勿使用。"
+        >
+          <span className="login-compliance-ticker-track" aria-hidden="true">
+            本平台仅供内部非营利娱乐 · 积分仅作游戏记分，不具有货币或财产价值，不可充值、交易或兑换 · 严禁任何线上线下财物结算及任何形式赌博 · 未成年人请勿使用
+          </span>
+        </div>
+
         <div className="auth-card">
           <div className="auth-logo">扯 开</div>
           <div className="auth-sub">永无定张 你晓得三</div>
@@ -81,6 +91,16 @@ export default function LoginPage() {
           </form>
           <div className="auth-hint">账号由管理员分配，无注册入口。</div>
         </div>
+
+        <footer className="site-icp-footer">
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            蜀ICP备2026039234号-1
+          </a>
+        </footer>
       </div>
     </div>
   );

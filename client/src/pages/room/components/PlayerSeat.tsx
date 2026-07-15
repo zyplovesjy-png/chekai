@@ -134,7 +134,6 @@ export function PlayerSeat({
           !gameStarted && seat.ready ? 'ready' : '',
         ].filter(Boolean).join(' ')}
       >
-        <div className={`timer-num${showTimer ? ' show' : ''}`}>{showTimer ? timer : '\u00a0'}</div>
         <div className="seat-name name">{seat.nickname}</div>
         <div className="avatar-wrap-outer">
           <Avatar

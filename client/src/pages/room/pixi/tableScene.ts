@@ -1,6 +1,6 @@
 import type { Container, Graphics } from 'pixi.js';
 import { getTableGeometry } from './tableGeometry';
-import { drawChip, drawDeck, drawFelt } from './tableTextures';
+import { drawChip, drawDeck } from './tableTextures';
 import type { ChipAnimationEvent, DealAnimationEvent, TableGeometry, TableSize } from './pixiTableTypes';
 
 type TickerCallback = () => void;
@@ -24,19 +24,17 @@ export interface PixiTableScene {
 
 export function createPixiTableScene(runtime: PixiRuntime): PixiTableScene {
   const root = new runtime.Container();
-  const felt = new runtime.Graphics();
   const deck = new runtime.Graphics();
   const potGlow = new runtime.Graphics();
   const animations = new runtime.Container();
   const activeTickerCallbacks = new Set<TickerCallback>();
   let lastGeometry: TableGeometry | null = null;
 
-  root.addChild(felt, potGlow, deck, animations);
+  root.addChild(potGlow, deck, animations);
 
   function resize(size: TableSize) {
     const geometry = getTableGeometry(size);
     lastGeometry = geometry;
-    drawFelt(felt, size.width, size.height);
 
     potGlow.clear();
 

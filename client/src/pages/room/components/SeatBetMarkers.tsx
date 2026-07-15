@@ -1,7 +1,6 @@
 import type { GamePlayer } from '@/stores/gameStore';
 import type { RoomInfo } from '@/stores/roomStore';
 import { getVisualIndexForUsername } from '../seatLayout';
-import { BET_CENTERS } from '../tableLayout';
 
 interface SeatBetMarkersProps {
   players: GamePlayer[];
@@ -12,7 +11,7 @@ interface SeatBetMarkersProps {
   hideForCompare?: boolean;
 }
 
-/** 每位玩家当前喊价显示在桌面靠近头像处；比牌展示时隐藏，避免挡牌 */
+/** 每位玩家当前喊价显示在对应两张牌下方；比牌展示时隐藏，避免挡牌。 */
 export function SeatBetMarkers({
   players,
   room,
@@ -29,13 +28,10 @@ export function SeatBetMarkers({
         if (amount <= 0 || player.folded || player.eliminated) return null;
         const visualIdx = getVisualIndexForUsername(room, visualSeats, player.username);
         if (visualIdx < 0) return null;
-        const pos = BET_CENTERS[visualIdx];
-        if (!pos) return null;
         return (
           <div
             key={player.username}
             className={`tea-seat-bet tea-seat-bet-v${visualIdx}`}
-            style={{ left: pos.left, top: pos.top }}
             aria-label={`${player.nickname}喊价${amount}`}
           >
             <i className="tea-seat-bet-chip" aria-hidden="true" />

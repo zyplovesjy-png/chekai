@@ -20,6 +20,7 @@ const {
   setRoomMapChangeHandler, destroyEmptyRoom,
 } = require('./rooms');
 const { settlePlayerChips, archivePlayerOrSeat, bumpInitialBuyIn } = require('./chip-ledger');
+const { getRoomExitBlockReason } = require('./room-exit-rules');
 const {
   beginSettleAnimGate,
   clearSettleAnimGate,
@@ -34,11 +35,18 @@ const {
   listGameSessions, getSessionDetail, listSessionHandsForHistory, getLeaderboard, findUserByUsername,
   resetAllPlayerStats, resetWinrateStats, resetProfitStats,
   deleteGameSession, deleteAllGameSessions,
+  listQuickMessages, replaceQuickMessages,
 } = require('./db');
 const { attachLogger, getLogger } = require('./game-logger');
+const {
+  RoomMessageRateLimiter,
+  createRoomMessageBroadcast,
+  validateQuickMessageList,
+} = require('./quick-messages');
 
 /* ---------- 在线 presence（大厅 + 房间共用） ---------- */
 const onlineUsers = new Map(); // username -> Set<ws>
+const roomMessageRateLimiter = new RoomMessageRateLimiter();
 
 function markOnline(username, ws) {
   if (!username) return;
@@ -67,6 +75,17 @@ function isOnline(username) {
 
 function getOnlineCount() {
   return onlineUsers.size;
+}
+
+function broadcastToOnline(data) {
+  const payload = JSON.stringify(data);
+  for (const set of onlineUsers.values()) {
+    for (const ws of set) {
+      if (ws.readyState === 1) {
+        try { ws.send(payload); } catch { /* ignore */ }
+      }
+    }
+  }
 }
 
 /** 踢掉某账号除 keepSid 外的所有 WebSocket（多端登录互斥） */
@@ -167,6 +186,17 @@ function roomMemberName(room, username) {
   if (member?.nickname) return member.nickname;
   const p = room.game?.getPlayer?.(username);
   return p?.nickname || username;
+}
+
+/** 房间消息绝不使用账号名作为昵称兜底。 */
+function roomMessageNickname(room, username) {
+  if (!room || !username) return '玩家';
+  const seat = (room.seats || []).find((s) => s && s.username === username);
+  if (seat?.nickname) return seat.nickname;
+  const member = (room.members || []).find((m) => m.username === username);
+  if (member?.nickname) return member.nickname;
+  const player = room.game?.getPlayer?.(username);
+  return player?.nickname || '玩家';
 }
 
 function sendToUser(room, username, data) {
@@ -428,6 +458,7 @@ function startBankerSelection(room) {
         const log = getLogger(room);
         log?.logRoundStart(engine);
         log?.logDeal(engine, 1);
+        broadcastRoom(room);
         broadcastRoundState(room);
       }
     }, 1500);
@@ -484,7 +515,7 @@ function broadcastBuyInDecision(room) {
   broadcastRoom(room);
 }
 
-/** 局间：有人输光且「有筹码在座」将不足 2 人 → 进入加簸/退出决策 */
+/** 局间：所有输光且未预约加簸的在座玩家都必须选择加簸继续或退出。 */
 function startBrokeBuyInDecision(room, brokePlayers) {
   brokePlayers.forEach(p => { p.eliminated = false; });
   room.awaitingBuyInDecision = {
@@ -782,9 +813,7 @@ function startNextRoundAuto(room, opts = {}) {
   if (!opts.skipBrokeDecision) {
     const seatedPlayers = getSeatedEnginePlayers(room);
     const broke = seatedPlayers.filter(p => p.pot <= 0 && (p.pendingBuyIn || 0) <= 0);
-    const fundedCount = seatedPlayers.filter(p => p.pot > 0 || (p.pendingBuyIn || 0) > 0).length;
-    // 未满总局数，且输光离座后将不足 2 人 → 弹窗让输光者加簸/退出
-    if (broke.length > 0 && fundedCount < 2) {
+    if (broke.length > 0) {
       startBrokeBuyInDecision(room, broke);
       return;
     }
@@ -811,6 +840,7 @@ function startNextRoundAuto(room, opts = {}) {
     const log = getLogger(room);
     log?.logRoundStart(engine);
     log?.logDeal(engine, 1);
+    broadcastRoom(room);
     broadcastRoundState(room);
   } else {
     endGameAndSendSettlement(room, 'players');
@@ -915,6 +945,18 @@ app.get('/api/records/:id', authMiddleware, (req, res) => {
 /* ---------- 管理端 ---------- */
 app.get('/api/admin/users', adminMiddleware, (req, res) => {
   res.json({ ok: true, users: listUsers() });
+});
+
+app.get('/api/quick-messages', authMiddleware, (req, res) => {
+  res.json({ ok: true, messages: listQuickMessages() });
+});
+
+app.put('/api/admin/quick-messages', adminMiddleware, (req, res) => {
+  const checked = validateQuickMessageList(req.body?.messages);
+  if (!checked.ok) return res.status(400).json(checked);
+  const messages = replaceQuickMessages(checked.messages);
+  broadcastToOnline({ type: 'quick_messages_updated', messages });
+  res.json({ ok: true, messages });
 });
 
 app.post('/api/admin/users', adminMiddleware, (req, res) => {
@@ -1137,25 +1179,15 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
   const room = roomsByCode.get(req.params.code);
   if (!room) return res.json({ ok: true });
   const username = req.user.username;
-  let bettingDone = null;
 
-  // 如果游戏正在进行且该玩家是参与者，先自动弃牌并归档
+  // 当前手仍在参与时不能用“返回大厅”绕过弃牌规则。
+  const exitBlockReason = getRoomExitBlockReason(room, username);
+  if (exitBlockReason) return res.json({ ok: false, msg: exitBlockReason });
+
+  // 仅允许已弃牌、未参与本局或局间玩家离开，并归档其剩余筹码。
   if (room.game && room.game.state) {
     const engine = room.game;
-    const s = engine.state;
     const p = engine.getPlayer(username);
-    if (p && !p.folded && s.activeIds.includes(username) &&
-        !['idle','done','gameover'].includes(s.phase)) {
-      const before = { pot: p.pot, committed: p.committed, foldPaid: p.foldPaid || 0 };
-      const result = engine.doFold(p);
-      if (result) {
-        getLogger(room)?.logAction(engine, result, { leave: true, before });
-        sendToRoom(room, { type: 'game_action', action: { ...result, leave: true } });
-        s.toAct = s.toAct.filter(u => u !== username);
-        engine.advanceToAct();
-        bettingDone = engine.checkBettingDone();
-      }
-    }
     const archived = archivePlayerOrSeat(room, username, {
       player: p || null,
       clearSeat: false, // leaveRoom 会清座位
@@ -1181,14 +1213,10 @@ app.post('/api/rooms/:code/leave', authMiddleware, (req, res) => {
   if (result) broadcastRoom(result);
   if (room.game) {
     broadcastRoundState(room);
-    if (bettingDone && bettingDone.done) {
-      handleBettingDone(room, room.game, bettingDone);
-    } else {
-      // 离座后若在座不足 2 人且局间/已结束，提前总结算
-      const seated = room.seats.filter(s => s !== null).length;
-      if (seated < 2 && ['done', 'idle', 'gameover'].includes(room.game.state?.phase)) {
-        endGameAndSendSettlement(room, 'players');
-      }
+    // 离座后若在座不足 2 人且局间/已结束，提前总结算
+    const seated = room.seats.filter(s => s !== null).length;
+    if (seated < 2 && ['done', 'idle', 'gameover'].includes(room.game.state?.phase)) {
+      endGameAndSendSettlement(room, 'players');
     }
   }
   broadcastLobbyUpdate();
@@ -1383,6 +1411,26 @@ wss.on('connection', (ws) => {
       }
     }
 
+    if (msg.type === 'send_room_message') {
+      const room = roomsByCode.get(ws.currentRoomCode);
+      if (!room || !ws.username || !room.members.some((m) => m.username === ws.username)) {
+        sendError(ws, '你当前不在房间内');
+        return;
+      }
+      const checked = createRoomMessageBroadcast(roomMessageNickname(room, ws.username), msg);
+      if (!checked.ok) {
+        sendError(ws, checked.msg || '消息格式错误');
+        return;
+      }
+      const limit = roomMessageRateLimiter.check(`${room.code}:${ws.username}`);
+      if (!limit.ok) {
+        sendError(ws, '消息发送太频繁，请稍后再试');
+        return;
+      }
+      sendToRoom(room, checked.payload);
+      return;
+    }
+
     // 破产决策：加簸继续 / 立即退出（支持多人同时输光）
     if (msg.type === 'buyin_decision') {
       const room = roomsByCode.get(ws.currentRoomCode);
@@ -1479,6 +1527,10 @@ wss.on('connection', (ws) => {
           result = engine.doRest(p);
           break;
         case 'fold':
+          if (!engine.canFoldNow()) {
+            sendError(ws, '发第3/4张牌后，无人下注时不能丢牌');
+            return;
+          }
           result = engine.doFold(p);
           break;
         case 'see':
