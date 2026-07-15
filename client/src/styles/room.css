@@ -2890,7 +2890,10 @@
 /* 房间消息只在牌桌舞台内部飞行，不拦截任何游戏操作。 */
 .tea-room .barrage-layer {
   position: absolute;
-  inset: 7% 0 9%;
+  top: 10%;
+  right: 0;
+  bottom: auto;
+  left: 0;
   z-index: 18;
   overflow: hidden;
   pointer-events: none;
@@ -3128,7 +3131,7 @@
   }
   .tea-room .table-felt.tea-felt,
   .tea-room .table-felt.tea-felt.pixi-backed { top: 8% !important; height: 78% !important; }
-  .tea-room .barrage-layer { inset-block: 5%; }
+  .tea-room .barrage-layer { top: 5%; }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

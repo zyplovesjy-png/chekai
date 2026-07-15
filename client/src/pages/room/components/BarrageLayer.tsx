@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { RoomMessage } from '@/types/quickMessages';
 
-const SPEED_PX_PER_SECOND = 56;
+const SPEED_PX_PER_SECOND = 62;
 const START_GAP_MS = 180;
+const LANE_STEP_PX = 34;
 
 interface ScheduledMessage extends RoomMessage {
   lane: number;
@@ -18,17 +19,19 @@ interface BarrageLayerProps {
 export function BarrageLayer({ messages }: BarrageLayerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const seenRef = useRef(new Set<number>());
-  const laneAvailableRef = useRef<number[]>(Array(5).fill(0));
+  const laneAvailableRef = useRef<number[]>(Array(4).fill(0));
   const lastLaunchRef = useRef(0);
   const cleanupTimersRef = useRef(new Set<number>());
-  const [laneCount, setLaneCount] = useState(5);
+  const [laneCount, setLaneCount] = useState(4);
   const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    const stage = host.parentElement;
     const update = () => {
-      const next = host.clientHeight < 430 ? 3 : 5;
+      const stageHeight = stage?.clientHeight || window.innerHeight;
+      const next = stageHeight < 430 ? 3 : 4;
       setLaneCount(next);
       if (laneAvailableRef.current.length !== next) {
         laneAvailableRef.current = Array(next).fill(Date.now());
@@ -36,7 +39,7 @@ export function BarrageLayer({ messages }: BarrageLayerProps) {
     };
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(host);
+    observer.observe(stage || host);
     return () => observer.disconnect();
   }, []);
 
@@ -86,14 +89,21 @@ export function BarrageLayer({ messages }: BarrageLayerProps) {
   }, []);
 
   return (
-    <div ref={hostRef} className="barrage-layer" style={{ '--barrage-lanes': laneCount } as CSSProperties}>
+    <div
+      ref={hostRef}
+      className="barrage-layer"
+      style={{
+        '--barrage-lanes': laneCount,
+        height: `${laneCount * LANE_STEP_PX}px`,
+      } as CSSProperties}
+    >
       {scheduled.map((message) => (
         <div
           key={message.localId}
           className="barrage-message"
           style={{
             '--barrage-lane': message.lane,
-            '--barrage-top': `${((message.lane + 0.5) / laneCount) * 100}%`,
+            '--barrage-top': `${(message.lane + 0.5) * LANE_STEP_PX}px`,
             '--barrage-delay': `${message.delayMs}ms`,
             '--barrage-duration': `${message.durationMs}ms`,
             '--barrage-travel': `-${message.travelPx}px`,
