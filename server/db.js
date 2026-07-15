@@ -3,6 +3,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
+const { initialQuickMessages } = require('./quick-messages');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'chekai.db');
 const dataDir = path.join(__dirname, '..', 'data');
@@ -11,6 +12,10 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+const shouldSeedQuickMessages = !db.prepare(
+  "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'quick_messages'"
+).get();
 
 // ========== 建表 ==========
 db.exec(`
@@ -106,7 +111,26 @@ db.exec(`
     final_pot INTEGER NOT NULL DEFAULT 0,
     delta INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS quick_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `);
+
+const defaultQuickMessages = initialQuickMessages(!shouldSeedQuickMessages);
+if (defaultQuickMessages.length) {
+  const insert = db.prepare(
+    'INSERT INTO quick_messages (content, sort_order) VALUES (?, ?)'
+  );
+  const seed = db.transaction(() => {
+    defaultQuickMessages.forEach((content, index) => insert.run(content, index));
+  });
+  seed();
+}
 
 // ========== 迁移：补列 ==========
 function ensureColumn(table, column, ddl) {
@@ -817,6 +841,28 @@ function deleteAllGameSessions() {
   return { ok: true };
 }
 
+// ========== 快捷消息 ==========
+function listQuickMessages() {
+  return db.prepare(`
+    SELECT id, content, sort_order AS sortOrder
+    FROM quick_messages
+    ORDER BY sort_order ASC, id ASC
+  `).all();
+}
+
+function replaceQuickMessages(messages) {
+  const remove = db.prepare('DELETE FROM quick_messages');
+  const insert = db.prepare(
+    'INSERT INTO quick_messages (content, sort_order, updated_at) VALUES (?, ?, unixepoch())'
+  );
+  const tx = db.transaction(() => {
+    remove.run();
+    messages.forEach((message, index) => insert.run(message.content, index));
+  });
+  tx();
+  return listQuickMessages();
+}
+
 // ========== 旧接口兼容 ==========
 function saveGameRecord(roomCode, playerResults) {
   const insertGame = db.prepare(
@@ -900,6 +946,8 @@ module.exports = {
   resetProfitStats,
   deleteGameSession,
   deleteAllGameSessions,
+  listQuickMessages,
+  replaceQuickMessages,
   saveGameRecord,
   getUserStats,
   getAllUserStats,

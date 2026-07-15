@@ -1,48 +1,10 @@
 /**
- * Lobby game-asset preload (cards + SFX). Shares Cache Storage with SW chekai-game-v1.
+ * Lobby game-asset preload (SFX only). Cards are rendered with HTML/CSS.
  * Enter room → pause; return lobby → check cache and fill gaps.
  */
 
-import { CARD_BACK_URL } from '@/pages/room/cardAssets';
-
-const GAME_CACHE = 'chekai-game-v1';
+const GAME_CACHE = 'chekai-game-v2';
 const CONCURRENCY = 3;
-
-/** Same files as cardAssets ID_TO_FILE (+ back). */
-const CARD_FILES = [
-  'heart_queen',
-  'diamond_queen',
-  'heart_2',
-  'diamond_2',
-  'heart_8',
-  'diamond_8',
-  'heart_4',
-  'diamond_4',
-  'spade_10',
-  'club_10',
-  'spade_4',
-  'club_4',
-  'spade_6',
-  'club_6',
-  'spade_jack',
-  'club_jack',
-  'heart_10',
-  'diamond_10',
-  'heart_6',
-  'diamond_6',
-  'heart_7',
-  'diamond_7',
-  'spade_9',
-  'club_9',
-  'spade_8',
-  'club_8',
-  'spade_7',
-  'club_7',
-  'spade_5',
-  'club_5',
-  'heart_3',
-  'joker_red',
-];
 
 /** Same candidates as sounds.ts FILE_CANDIDATES. */
 const SOUND_FILES = [
@@ -89,9 +51,8 @@ function toAbs(path: string): string {
 }
 
 function assetUrls(): string[] {
-  const cards = CARD_FILES.map((f) => toAbs(`/game/cards/${f}.png`));
   const sounds = SOUND_FILES.map((f) => toAbs(`/game/sounds/${f}`));
-  return [...cards, toAbs(CARD_BACK_URL), ...sounds];
+  return sounds;
 }
 
 function emit() {

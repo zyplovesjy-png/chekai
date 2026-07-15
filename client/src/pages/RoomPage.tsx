@@ -10,11 +10,12 @@ import { PublicCards } from './room/components/PublicCards';
 import { SeatBetMarkers } from './room/components/SeatBetMarkers';
 import { useRoomGameController } from './room/useRoomGameController';
 import { HistoryDrawer } from './room/components/HistoryDrawer';
+import { QuickMessageDrawer } from './room/components/QuickMessageDrawer';
+import { BarrageLayer } from './room/components/BarrageLayer';
 import { ActionBar } from './room/components/ActionBar';
 import { AnimatedLayer } from './room/components/AnimatedLayer';
 import { PixiTableLayer } from './room/pixi/PixiTableLayer';
 import { TURN_TIME_SECONDS } from './room/constants';
-import { cardBackUrl } from './room/cardAssets';
 import { isSfxEnabled, toggleSfxEnabled } from './room/sounds';
 import { RoomChromeIcons } from '@/components/AppChromeIcons';
 import { pauseGameAssetPreload } from '@/utils/gameAssetPreload';
@@ -92,11 +93,16 @@ export default function RoomPage() {
     buyInDecision,
     addBuyInAmount,
     setAddBuyInAmount,
+    quickMessages,
+    roomMessages,
+    handleSendRoomMessage,
   } = useRoomGameController({ code, room, myUsername, navigate, api, setRoom });
 
   const [showAddBuyIn, setShowAddBuyIn] = useState(false);
   const [showSpectators, setShowSpectators] = useState(false);
   const [showExtendTime, setShowExtendTime] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showQuickMessages, setShowQuickMessages] = useState(false);
   const [actionHint, setActionHint] = useState('');
   const [nowTs, setNowTs] = useState(() => Date.now());
 
@@ -114,6 +120,21 @@ export default function RoomPage() {
 
   const myPlayer = game.players.find((player) => player.username === myUsername);
   const mySeat = room?.seats.find((seat) => seat?.username === myUsername) ?? null;
+  const activeHand = ['dealing', 'betting1', 'betting2', 'betting3', 'selecting', 'comparing'].includes(game.phase);
+  const myBrokeDecision = buyInDecision?.players.find((player) => player.username === myUsername);
+  const myBrokePending = !!myBrokeDecision && !myBrokeDecision.choice;
+  const blockedByBrokeDecision = !!myBrokeDecision && myBrokeDecision.choice !== 'continue';
+  const waitingForNextRound = (
+    !!room?.gameStarted && (!myPlayer || !!myPlayer.joiningNextRound)
+  ) || blockedByBrokeDecision;
+  const viewMode = !mySeat
+    ? 'spectator'
+    : waitingForNextRound
+      ? 'joining'
+      : 'player';
+  const showPlayerHud = viewMode === 'player';
+  const canStandUp = !!mySeat && (!activeHand || !myPlayer || !!myPlayer.folded);
+  const canLeaveRoom = !activeHand || !myPlayer || !!myPlayer.folded;
   const isHostUser = !!room && myUsername === room.host;
   const canReady = !!room && !room.gameStarted && !!mySeat && !isHostUser;
   const realCompare = game.phase === 'comparing' || isRealCompare(game.compareResult);
@@ -226,22 +247,19 @@ export default function RoomPage() {
     );
   };
 
-  const myBrokePending = !!buyInDecision
-    && buyInDecision.players.some((p) => p.username === myUsername && !p.choice);
-
   const openMenu = () => setShowMenu(true);
   const closeMenu = () => setShowMenu(false);
 
-  const showSelfTimer = !isDealing && ((isMyTurn && isBetting) || (isMyTurn && game.phase === 'selecting'));
+  const showSelfTimer = showPlayerHud && !isDealing && ((isMyTurn && isBetting) || (isMyTurn && game.phase === 'selecting'));
   const selfUrgency = showSelfTimer ? getTimerUrgency(turnTimer, turnTimerMax) : '';
   const selfTimerRatio = Math.max(0, Math.min(100, ((turnTimer ?? 0) / Math.max(turnTimerMax, 1)) * 100));
-  const showActionOverlay = !isDealing && !room?.paused && (
+  const showActionOverlay = showPlayerHud && !isDealing && !room?.paused && (
     (game.phase === 'selecting' && !game.mySplit)
     || (isMyTurn && isBetting)
   );
 
   return (
-    <div className={`room-page tea-room${showActionOverlay ? ' action-open' : ''}`}>
+    <div className={`room-page tea-room view-${viewMode}${showActionOverlay ? ' action-open' : ''}`}>
       <header className="tea-top">
         <div className="tea-brand">
           <span className="tea-code">{room?.code || code || '--'}</span>
@@ -283,15 +301,16 @@ export default function RoomPage() {
       {/* 牌桌舞台 */}
       <main className="game-area tea-stage">
         <PixiTableLayer enabled={pixiEnabled} dealAnim={dealAnim} chipAnim={chipAnim} />
+        <BarrageLayer messages={roomMessages} />
 
         <div className={`table-felt tea-felt${pixiEnabled ? ' pixi-backed' : ''}`}>
-          {game.gameStarted && (
+          {game.gameStarted && game.phase !== 'comparing' && !(game.phase === 'done' && realCompare) && (
             <div className="deck-pile" aria-label={`剩余 ${game.remainingCards} 张`}>
               <div className="deck-stack" aria-hidden="true">
-                <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
-                <i style={{ backgroundImage: `url(${cardBackUrl()})` }} />
+                <i />
+                <i />
+                <i />
+                <i />
               </div>
               <div className="deck-count">{game.remainingCards}</div>
             </div>
@@ -306,6 +325,9 @@ export default function RoomPage() {
           {tableToastText && (
             <div className="table-global-message tea-toast" aria-live="polite">{tableToastText}</div>
           )}
+          <div className="room-compliance-note" role="note">
+            仅限娱乐 · 积分不可兑换 · 严禁赌博及场外结算
+          </div>
         </div>
 
         {visualSeats.map((physIdx, visualIdx) => renderSeatArea(physIdx, visualIdx))}
@@ -338,7 +360,8 @@ export default function RoomPage() {
         />
       </main>
 
-      {/* 底部 HUD */}
+      {/* 观战者和等待下局的入座者不渲染游戏操作 HUD。 */}
+      {showPlayerHud && (
       <footer className="tea-hud">
         <div
           className={`self-timer${showSelfTimer ? ' show' : ''}${selfUrgency ? ` ${selfUrgency}` : ''}`}
@@ -389,7 +412,7 @@ export default function RoomPage() {
             <div>
               <div className="nm">{mySeat?.nickname || user?.nickname || '未入座'}</div>
               <div className={`sk${showAddBuyInHint ? ' sk-low' : ''}`}>
-                {mySeat ? myTotalPot : '—'}
+                <span>{mySeat ? myTotalPot : '—'}</span>
                 {showAddBuyInHint && (
                   <button
                     type="button"
@@ -403,16 +426,31 @@ export default function RoomPage() {
             </div>
           </div>
           {privateGuide && <div className="hint-mini private-guide">{privateGuide}</div>}
+          <button
+            type="button"
+            className="room-message-button"
+            aria-label="打开快捷消息"
+            onClick={() => {
+              setShowHistory(false);
+              setShowQuickMessages(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
+            </svg>
+          </button>
         </div>
 
-        <MyHand
-          myHand={game.myHand}
-          mySplit={game.mySplit}
-          selected={game.selected}
-          phase={game.phase}
-          onCardClick={handleCardClick}
-          realCompare={realCompare}
-        />
+        {game.myHand.length > 0 && (
+          <MyHand
+            myHand={game.myHand}
+            mySplit={game.mySplit}
+            selected={game.selected}
+            phase={game.phase}
+            onCardClick={handleCardClick}
+            realCompare={realCompare}
+          />
+        )}
 
         <ActionBar
           phase={room?.paused ? 'idle' : (isDealing ? 'dealing' : game.phase)}
@@ -443,6 +481,24 @@ export default function RoomPage() {
           onHintChange={setActionHint}
         />
       </footer>
+      )}
+
+      {!showPlayerHud && (
+        <button
+          type="button"
+          className="spectator-message-button"
+          aria-label="打开快捷消息"
+          onClick={() => {
+            setShowHistory(false);
+            setShowQuickMessages(true);
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
+          </svg>
+          <span>{viewMode === 'joining' ? '等待下局 · 消息' : '快捷消息'}</span>
+        </button>
+      )}
 
       {/* 菜单弹层：观战 / 加簸 / 返回 */}
       {showMenu && (
@@ -465,9 +521,18 @@ export default function RoomPage() {
                 加簸 <span>下局生效</span>
               </button>
             )}
-            {!game.gameStarted && room?.seats.some((s) => s?.username === myUsername) && (
-              <button className="menu-item" type="button" onClick={() => { handleStandUp(); closeMenu(); }}>
-                离开座位
+            {!!mySeat && (
+              <button
+                className="menu-item"
+                type="button"
+                disabled={!canStandUp}
+                title={canStandUp ? '离开座位并进入观战席' : '需先丢牌或等待本局结束'}
+                onClick={async () => {
+                  if (!canStandUp || !confirm('确认起身离座并进入观战席？筹码会保留在本场。')) return;
+                  if (await handleStandUp()) closeMenu();
+                }}
+              >
+                起身离座 <span>{canStandUp ? '进入观战席' : '需先丢牌或等待本局结束'}</span>
               </button>
             )}
             {room && myUsername === room.host && room.gameStarted && (
@@ -511,8 +576,17 @@ export default function RoomPage() {
                 加时 <span>延长对局</span>
               </button>
             )}
-            <button className="menu-item danger" type="button" onClick={() => { handleLeaveRoom(); closeMenu(); }}>
-              返回大厅
+            <button
+              className="menu-item danger"
+              type="button"
+              disabled={!canLeaveRoom}
+              title={canLeaveRoom ? '离开房间并返回大厅' : '需先丢牌或等待本局结束'}
+              onClick={async () => {
+                if (!canLeaveRoom) return;
+                if (await handleLeaveRoom()) closeMenu();
+              }}
+            >
+              返回大厅 <span>{canLeaveRoom ? '离开房间' : '需先丢牌或等待本局结束'}</span>
             </button>
           </div>
         </div>
@@ -540,7 +614,24 @@ export default function RoomPage() {
         </div>
       )}
 
-      <HistoryDrawer roundHistory={game.roundHistory} />
+      <HistoryDrawer
+        roundHistory={game.roundHistory}
+        open={showHistory}
+        onOpenChange={(open) => {
+          setShowHistory(open);
+          if (open) setShowQuickMessages(false);
+        }}
+      />
+
+      <QuickMessageDrawer
+        open={showQuickMessages}
+        messages={quickMessages}
+        onOpenChange={(open) => {
+          setShowQuickMessages(open);
+          if (open) setShowHistory(false);
+        }}
+        onSend={handleSendRoomMessage}
+      />
 
       {buyInDecision && myBrokePending && (
         <div className="modal-overlay">

@@ -423,7 +423,7 @@ export default function LobbyPage() {
             {tab === 'me' && (
               <div className="me-panel">
                 <div className={`me-profit-card tone-${profitTone}`}>
-                  <div className="me-profit-label">我的净输赢</div>
+                  <div className="me-profit-label">总积分</div>
                   <div className="me-profit-value">
                     {myProfit > 0 ? '+' : ''}{myProfit}
                   </div>
@@ -459,6 +459,16 @@ export default function LobbyPage() {
               </div>
             )}
           </div>
+
+          <footer className="site-icp-footer">
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              蜀ICP备2026039234号-1
+            </a>
+          </footer>
         </div>
 
         {showCreate && (

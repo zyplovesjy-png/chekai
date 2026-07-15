@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, type MouseEvent, type ChangeEvent } f
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
+import type { QuickMessage } from '@/types/quickMessages';
 
-type Tab = 'users' | 'records';
+type Tab = 'users' | 'records' | 'messages';
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -12,6 +13,8 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('users');
   const [users, setUsers] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [quickMessages, setQuickMessages] = useState<QuickMessage[]>([]);
+  const [quickMessageStatus, setQuickMessageStatus] = useState('');
   const [msg, setMsg] = useState('');
 
   const [form, setForm] = useState({ username: '', nickname: '', password: '' });
@@ -32,10 +35,69 @@ export default function AdminPage() {
     if (r.ok) setSessions(r.sessions || []);
   }, [api]);
 
+  const loadQuickMessages = useCallback(async () => {
+    const r = await api('/api/quick-messages');
+    if (r.ok) setQuickMessages(r.messages || []);
+  }, [api]);
+
   useEffect(() => {
     if (tab === 'users') loadUsers();
-    else loadRecords();
-  }, [tab, loadUsers, loadRecords]);
+    else if (tab === 'records') loadRecords();
+    else loadQuickMessages();
+  }, [tab, loadUsers, loadRecords, loadQuickMessages]);
+
+  const updateQuickMessage = (id: number, content: string) => {
+    const next = Array.from(content).slice(0, 40).join('');
+    setQuickMessages((current) => current.map((item) => (
+      item.id === id ? { ...item, content: next } : item
+    )));
+    setQuickMessageStatus('');
+  };
+
+  const moveQuickMessage = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= quickMessages.length) return;
+    setQuickMessages((current) => {
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next.map((item, sortOrder) => ({ ...item, sortOrder }));
+    });
+    setQuickMessageStatus('');
+  };
+
+  const addQuickMessage = () => {
+    if (quickMessages.length >= 50) {
+      setQuickMessageStatus('最多配置 50 条');
+      return;
+    }
+    setQuickMessages((current) => [
+      ...current,
+      { id: -Date.now(), content: '', sortOrder: current.length },
+    ]);
+    setQuickMessageStatus('');
+  };
+
+  const saveQuickMessages = async () => {
+    const messages = quickMessages.map((item) => item.content.trim());
+    if (messages.some((content) => !content)) {
+      setQuickMessageStatus('消息内容不能为空');
+      return;
+    }
+    if (messages.some((content) => Array.from(content).length > 40)) {
+      setQuickMessageStatus('每条消息最多 40 个字符');
+      return;
+    }
+    const r = await api('/api/admin/quick-messages', {
+      method: 'PUT',
+      body: JSON.stringify({ messages }),
+    });
+    if (r.ok) {
+      setQuickMessages(r.messages || []);
+      setQuickMessageStatus('已保存并实时同步到所有房间');
+    } else {
+      setQuickMessageStatus(r.msg || '保存失败');
+    }
+  };
 
   const handleLogout = () => {
     clear();
@@ -174,6 +236,9 @@ export default function AdminPage() {
             <button className={`lobby-tab ${tab === 'records' ? 'active' : ''}`} onClick={() => setTab('records')}>
               对局记录
             </button>
+            <button className={`lobby-tab ${tab === 'messages' ? 'active' : ''}`} onClick={() => setTab('messages')}>
+              快捷消息
+            </button>
           </div>
 
           <div className="lobby-body">
@@ -307,6 +372,82 @@ export default function AdminPage() {
                   ))
                 )}
               </div>
+            )}
+
+            {tab === 'messages' && (
+              <section className="admin-quick-messages">
+                <div className="admin-quick-message-intro">
+                  <div>
+                    <div className="room-list-title">房间快捷消息</div>
+                    <p className="admin-hint">按当前顺序展示。最多 50 条，每条最多 40 个字符。</p>
+                  </div>
+                  <span>{quickMessages.length}/50</span>
+                </div>
+
+                <div className="admin-quick-message-list">
+                  {quickMessages.map((message, index) => (
+                    <div className="admin-quick-message-row" key={message.id}>
+                      <span className="admin-quick-message-order">{index + 1}</span>
+                      <div className="admin-quick-message-field">
+                        <input
+                          value={message.content}
+                          maxLength={80}
+                          aria-label={`第 ${index + 1} 条快捷消息`}
+                          onChange={(event) => updateQuickMessage(message.id, event.target.value)}
+                        />
+                        <span>{Array.from(message.content).length}/40</span>
+                      </div>
+                      <div className="admin-quick-message-actions">
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          aria-label="上移"
+                          disabled={index === 0}
+                          onClick={() => moveQuickMessage(index, -1)}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          aria-label="下移"
+                          disabled={index === quickMessages.length - 1}
+                          onClick={() => moveQuickMessage(index, 1)}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-small btn-danger"
+                          onClick={() => {
+                            setQuickMessages((current) => current
+                              .filter((item) => item.id !== message.id)
+                              .map((item, sortOrder) => ({ ...item, sortOrder })));
+                            setQuickMessageStatus('');
+                          }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {quickMessages.length === 0 && (
+                    <div className="room-list-empty">暂无快捷消息，可点击下方按钮添加</div>
+                  )}
+                </div>
+
+                {quickMessageStatus && (
+                  <div className="admin-quick-message-status" role="status">{quickMessageStatus}</div>
+                )}
+                <div className="admin-quick-message-footer">
+                  <button type="button" className="btn" onClick={addQuickMessage} disabled={quickMessages.length >= 50}>
+                    新增消息
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={saveQuickMessages}>
+                    统一保存
+                  </button>
+                </div>
+              </section>
             )}
           </div>
         </div>

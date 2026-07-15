@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import type { ChipAnimationEvent } from '../pixi/pixiTableTypes';
-import { cardBackUrl } from '../cardAssets';
 import { playChipSound, playDealSound } from '../sounds';
 import {
   BET_CENTERS,
@@ -97,7 +96,6 @@ export function AnimatedLayer({
       el.className = 'tea-fly-card';
       el.style.left = `${fromX}px`;
       el.style.top = `${fromY}px`;
-      el.style.backgroundImage = `url(${cardBackUrl()})`;
       fx.appendChild(el);
       playDealSound();
       const rot = round % 2 === 0 ? -12 : 14;

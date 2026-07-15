@@ -256,11 +256,12 @@ class GameEngine {
       beatMangoWinner: null,
       openingMango: null,
       roundHadBet: false,
-      /** 本局是否有人「已下注后又面对加价再弃」——有则本局不揍芒 */
-      foldFacedRaise: false,
       minBet: MANGO_BASE,
       maxBet: DEFAULT_MAX_BET,
       lastFinalBet: 0,
+      // 本轮开始前已经形成的累计最高喊价。无人开口时仍可休；
+      // 已敲玩家再次“敲”时，以此为比较基准，不能把桌面价格降回自己的短筹码。
+      streetBaseBet: 0,
       betRound: 0,
       betStarted: false,
       opener: null,
@@ -353,17 +354,19 @@ class GameEngine {
     return refund;
   }
 
-  resetBettingRound(minBet) {
+  resetBettingRound(minBet, streetBaseBet = 0) {
     const s = this.state;
     s.currentBet = 0;
     s.betStarted = false;
     s.minBet = Math.max(MANGO_BASE, Math.floor(minBet || MANGO_BASE));
+    s.streetBaseBet = Math.max(0, Math.floor(streetBaseBet || 0));
     this.players.forEach(p => {
       // 保留整局 committed；roundCommitted 同步为累计额供 UI
       p.roundCommitted = p.committed;
-      p.matched = !!p.allIn;
+      // 已敲玩家在发第3/4张牌后仍有说话权，本轮也必须明确选择休或敲。
+      p.matched = false;
       p.rested = false;
-      p.actedThisRound = !!p.allIn;
+      p.actedThisRound = false;
     });
   }
 
@@ -377,7 +380,6 @@ class GameEngine {
     if (!checkSanHua(player.hand).sanhua) return false;
     // 敲后连发满牌：从未有过「成三花后的发话机会」，补一次摊牌
     if (player.sanhuaOfferPending) return true;
-    if (player.allIn) return false;
     if (!['betting2', 'betting3'].includes(s.phase)) return false;
     if (!s.toAct.includes(player.username)) return false;
     return true;
@@ -392,7 +394,6 @@ class GameEngine {
     if (!player || player.folded || player.eliminated || player.sanhuaShown || player.sanhuaRevealLocked) return false;
     if (!checkSanHua(player.hand).sanhua) return false;
     if (player.sanhuaOfferPending) return true;
-    if (player.allIn) return false;
     if (!['betting2', 'betting3'].includes(this.state.phase)) return false;
     return this.state.toAct.includes(player.username);
   }
@@ -440,7 +441,7 @@ class GameEngine {
   clearOtherMatchesAfterRaise(player) {
     const s = this.state;
     this.players.forEach(other => {
-      if (other.username !== player.username && s.activeIds.includes(other.username) && !other.folded && !other.allIn) {
+      if (other.username !== player.username && s.activeIds.includes(other.username) && !other.folded && !other.eliminated) {
         other.matched = false;
         other.rested = false;
         other.actedThisRound = false;
@@ -681,6 +682,11 @@ class GameEngine {
       p.roundStartPot = p.pot;
       p.joiningNextRound = false;
     });
+    // 房间座位快照也必须同步清除，否则本人会继续被客户端识别为“等待下局”。
+    const activeUsernames = new Set(alive.map(p => p.username));
+    (this.room.seats || []).forEach((seat) => {
+      if (seat && activeUsernames.has(seat.username)) seat.joiningNextRound = false;
+    });
 
     const s = this.state;
     s.round++;
@@ -691,8 +697,8 @@ class GameEngine {
     s.splits = {};
     s.compareResult = null;
     s.roundHadBet = false;
-    s.foldFacedRaise = false;
     s.lastFinalBet = 0;
+    s.streetBaseBet = 0;
     s.raiseCount = 0;
 
     this.chargeRoundOpeningContributions(alive);
@@ -709,11 +715,11 @@ class GameEngine {
 
     s.phase = 'betting1';
     s.betRound = 1;
-    this.resetBettingRound(Math.max(MANGO_BASE, this.state.potPi || 0));
+    this.resetBettingRound(Math.max(MANGO_BASE, this.state.potPi || 0), 0);
     s.opener = this.players[order[0]]?.username || null;
     s.toAct = order.map(idx => this.players[idx].username).filter(username => {
       const p = this.getPlayer(username);
-      return p && !p.allIn;
+      return p && !p.folded && !p.eliminated;
     });
 
     const bankerName = this.players[s.bankerIdx]?.nickname || '?';
@@ -733,12 +739,15 @@ class GameEngine {
       if (!p.folded && p.hand.length < 3) p.hand.push(s.deck[s.dealIdx++]);
     });
     s.betRound = 2;
-    this.resetBettingRound(previousFinalBet > 0 ? previousFinalBet * 2 : MANGO_BASE);
+    this.resetBettingRound(
+      previousFinalBet > 0 ? previousFinalBet * 2 : MANGO_BASE,
+      previousFinalBet,
+    );
     s.opener = this.findOpenerWithTieBreak(2);
     const openerIdx = this.players.indexOf(this.getPlayer(s.opener));
     s.toAct = this.activeIndicesCCW(openerIdx).map(idx => this.players[idx].username).filter(username => {
       const p = this.getPlayer(username);
-      return p && !p.folded && !p.allIn;
+      return p && !p.folded && !p.eliminated;
     });
     s.phase = 'betting2';
 
@@ -756,12 +765,15 @@ class GameEngine {
       if (!p.folded && p.hand.length < 4) p.hand.push(s.deck[s.dealIdx++]);
     });
     s.betRound = 3;
-    this.resetBettingRound(previousFinalBet > 0 ? previousFinalBet * 2 : MANGO_BASE);
+    this.resetBettingRound(
+      previousFinalBet > 0 ? previousFinalBet * 2 : MANGO_BASE,
+      previousFinalBet,
+    );
     s.opener = this.findOpenerWithTieBreak(3);
     const openerIdx = this.players.indexOf(this.getPlayer(s.opener));
     s.toAct = this.activeIndicesCCW(openerIdx).map(idx => this.players[idx].username).filter(username => {
       const p = this.getPlayer(username);
-      return p && !p.folded && !p.allIn;
+      return p && !p.folded && !p.eliminated;
     });
     s.phase = 'betting3';
 
@@ -812,13 +824,15 @@ class GameEngine {
     return { action: 'see', bet: delta, amount: s.currentBet, delta, allIn: p.pot <= 0, player: p.username, name: p.nickname };
   }
 
-  doFold(p) {
-    this.lockSanhuaRevealIfAvailable(p);
+  // 前两张牌阶段可随时丢；第3/4张牌阶段必须先有人开口下注后才能丢。
+  canFoldNow() {
     const s = this.state;
-    // 已有喊价预扣，且桌上喊价高于自己 → 面对加价再弃（不揍芒）
-    if ((p.committed || 0) > 0 && (s.currentBet || 0) > p.committed) {
-      s.foldFacedRaise = true;
-    }
+    return s.betRound === 1 || s.betStarted || s.currentBet > 0;
+  }
+
+  doFold(p, { force = false } = {}) {
+    if (!force && !this.canFoldNow()) return null;
+    this.lockSanhuaRevealIfAvailable(p);
     // 弃牌 = 立即支付自己当前的喊价进底池
     const lost = this.payCommitmentToPot(p);
     p.folded = true;
@@ -855,14 +869,19 @@ class GameEngine {
     // 敲 = 喊价直接变为自己的全部簸簸数（已预扣的 committed + 手中剩余）
     const target = p.committed + p.pot;
     if (target <= 0) return null;
-    if (target === p.committed && p.allIn) return null;
     this.lockSanhuaRevealIfAvailable(p);
     const delta = this.placeBetToTarget(p, target);
     if (delta === null) return null;
     p.allIn = true;
     p.matched = true;
-    if (target > s.currentBet) {
-      s.currentBet = target;
+    const wasStarted = s.betStarted;
+    // 已敲玩家在新一轮再次“敲”时，只是在表达本轮立场，不会追加筹码。
+    // 若其敲额低于上一轮累计最高价，桌面基准仍沿用上一轮最高价。
+    const effectiveTarget = wasStarted
+      ? Math.max(s.currentBet, target)
+      : Math.max(target, s.streetBaseBet || 0);
+    if (!wasStarted || effectiveTarget > s.currentBet) {
+      s.currentBet = effectiveTarget;
       s.betStarted = true;
       this.clearOtherMatchesAfterRaise(p);
     }
@@ -900,33 +919,13 @@ class GameEngine {
     return !s.betStarted && s.currentBet <= 0;
   }
 
-  // 未敲存活玩家数
-  countNonKnockedAlive() {
-    const s = this.state;
-    return s.activeIds
-      .map(id => this.getPlayer(id))
-      .filter(p => p && !p.folded && !p.eliminated && !p.allIn).length;
-  }
-
-  // ≤1 名未敲且其喊价已跟平（或本就最高）→ 应直接进比牌
-  shouldSkipRemainingBettingRounds() {
-    const s = this.state;
-    const stillIn = s.activeIds.map(id => this.getPlayer(id)).filter(p => p && !p.folded && !p.eliminated);
-    if (stillIn.length <= 1) return false;
-    const nonKnocked = stillIn.filter(p => !p.allIn);
-    if (nonKnocked.length > 1) return false;
-    if (nonKnocked.length === 0) return true; // 全员敲
-    const last = nonKnocked[0];
-    return last.committed >= s.currentBet;
-  }
-
   // Advance to the next player who still needs to act.
   advanceToAct() {
     const s = this.state;
     while (s.toAct.length > 0) {
       const pid = s.toAct[0];
       const p = this.getPlayer(pid);
-      if (!p || p.folded || p.eliminated || p.matched || p.allIn) {
+      if (!p || p.folded || p.eliminated || p.matched) {
         s.toAct.shift();
         continue;
       }
@@ -943,7 +942,7 @@ class GameEngine {
     const order = this.activeIndicesCCW((pIdx + 1) % this.players.length);
     order.forEach(idx => {
       const other = this.players[idx];
-      if (other.username !== p.username && s.activeIds.includes(other.username) && !other.folded && !other.allIn && !other.matched) {
+      if (other.username !== p.username && s.activeIds.includes(other.username) && !other.folded && !other.eliminated && !other.matched) {
         s.toAct.push(other.username);
       }
     });
@@ -961,6 +960,7 @@ class GameEngine {
     if (stillInPlayers.length <= 1) {
       if (stillInPlayers.length === 1) {
         const winner = stillInPlayers[0];
+        const winnerHadBet = (winner.committed || 0) > 0;
         // 已有人亮三花、幸存者仍可亮 → 等（双三花）；纯弃牌独赢立刻收池
         if (this.soleSurvivorMayStillShowSanhua(winner)) {
           return { done: false };
@@ -971,12 +971,21 @@ class GameEngine {
         winner.pot += won;
         winner.lastDelta += won;
         s.potPi = 0;
-        // 揍芒：只剩一人赢（其余弃牌）默认触发。
-        // 赢家未操作别人丢光 与 赢家已下注别人丢光 相同。
-        // 例外：有人已下注后又面对加价（返）再弃 → 不揍芒。亮三花不算弃牌。
-        const folders = this.players.filter(p => p.folded && !p.eliminated);
+        // 揍芒只允许发生在发完两张牌的第一轮：
+        // 本轮已经有人下注、最后留下的赢家也有有效喊价，其余玩家实际弃牌。
+        // 第3/4张牌后的弃牌独赢、第一轮无人下注的白丢，都不揍芒。
+        const folders = this.players.filter(p => (
+          p.folded
+          && !p.eliminated
+          && !p.joiningNextRound
+          && (p.hand?.length || 0) > 0
+        ));
         const someoneFolded = folders.length > 0;
-        if (someoneFolded && !s.foldFacedRaise) {
+        const beatMango = s.betRound === 1
+          && s.betStarted
+          && winnerHadBet
+          && someoneFolded;
+        if (beatMango) {
           s.restMangoLevel = Math.min(MAX_REST_MANGO_LEVEL, s.restMangoLevel + 1);
           s.beatMangoWinner = winner.username;
         } else {
@@ -992,19 +1001,16 @@ class GameEngine {
       return { done: true, reason: 'all_sanhua' };
     }
 
+    // 场上所有仍在本局的玩家都已敲：无需再逐张说话，直接补发到4张进入配牌。
+    // 只要仍有一名未敲玩家，就继续走正常的第3/4张说话轮。
     if (stillInPlayers.every(p => p.allIn)) {
-      s.lastFinalBet = s.currentBet;
-      return { done: true, reason: 'all_in_showdown' };
-    }
-
-    // ≤1 名未敲且已跟平 → 跳过后续下注，直接发满牌比牌
-    if (this.shouldSkipRemainingBettingRounds()) {
       s.lastFinalBet = Math.max(s.currentBet, ...stillInPlayers.map(p => p.committed || 0));
       return { done: true, reason: 'all_in_showdown' };
     }
 
     if (!s.betStarted && s.currentBet <= 0) {
-      const actionable = stillInPlayers.filter(p => !p.allIn);
+      // 已敲玩家在新一轮仍要说话，因此也计入全休判断。
+      const actionable = stillInPlayers;
       const allRested = actionable.length > 0 && actionable.every(p => p.actedThisRound && p.rested);
       if (allRested) {
         // 全员休：存活者喊价作废；弃牌者已付退回；只留底注+芒果
@@ -1025,10 +1031,13 @@ class GameEngine {
       return { done: false };
     }
 
-    // 跟平口径：累计喊价 === 当前最高喊价（敲者不要求跟到最高）
-    const allMatched = stillInPlayers.every(p => p.allIn || (p.actedThisRound && p.committed === s.currentBet));
+    // 跟平口径：普通玩家累计喊价 === 当前最高喊价；敲者可以低于最高价，
+    // 但在本轮仍必须明确说过“敲”，不能因旧的 allIn 状态自动跳过。
+    const allMatched = stillInPlayers.every(p => (
+      p.actedThisRound && (p.allIn || p.committed === s.currentBet)
+    ));
     if (allMatched) {
-      s.lastFinalBet = s.currentBet;
+      s.lastFinalBet = Math.max(s.currentBet, ...stillInPlayers.map(p => p.committed || 0));
       return { done: true, reason: 'all_matched' };
     }
 
@@ -1445,6 +1454,7 @@ class GameEngine {
               ? p.hand.slice(2)
               : (showAllCards && split ? p.hand : p.hand.slice(2))),
           pendingBuyIn: p.pendingBuyIn || 0,
+          joiningNextRound: !!p.joiningNextRound,
           split: split ? {
             head: split.head,
             tail: split.tail,

@@ -52,17 +52,21 @@ function cardFromId(id: string): Card {
   if (id === 'joker') {
     return { id: 'joker', color: 'joker', rank: 'JK', suit: '★', cnName: '大鬼', cnChar: '鬼', cardPoints: 6, order: 50 };
   }
-  const color = id.startsWith('r') ? 'red' : 'black';
-  const n = id.match(/(\d+)$/)?.[1];
-  const suit = color === 'red' ? (n === '1' ? '♥' : '♦') : (n === '1' ? '♠' : '♣');
-  let rank = '?';
-  if (id.includes('10')) rank = '10';
-  else if (id.match(/^[rb]Q/)) rank = 'Q';
-  else if (id.match(/^[rb]J/)) rank = 'J';
-  else {
-    const m = id.match(/^[rb](\d+)/);
-    rank = m ? m[1] : '?';
+
+  // 红 3 是牌库中唯一没有副本序号的普通牌。
+  if (id === 'r3') {
+    return { id, color: 'red', rank: '3', suit: '♥', cnName: id, cnChar: '3', cardPoints: 3, order: 50 };
   }
+
+  // 其余牌 ID 格式为：颜色 + 点数 + 副本序号，例如 rQ1、r101、b51。
+  // 必须单独解析最后一位序号，不能把 r101 尾部的 "101" 整体当成序号。
+  const matched = id.match(/^([rb])(Q|J|10|[2-9])([12])$/);
+  const color = matched?.[1] === 'r' ? 'red' : 'black';
+  const rank = matched?.[2] || '?';
+  const copy = matched?.[3];
+  const suit = color === 'red'
+    ? (copy === '1' ? '♥' : '♦')
+    : (copy === '1' ? '♠' : '♣');
   return {
     id,
     color,

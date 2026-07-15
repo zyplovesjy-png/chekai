@@ -1,9 +1,5 @@
 ﻿import type { Graphics } from 'pixi.js';
 
-export function drawFelt(graphics: Graphics, _width: number, _height: number) {
-  graphics.clear();
-}
-
 export function drawDeck(graphics: Graphics, x: number, y: number) {
   graphics.clear();
   // 叠三层牌背，贴近 DOM 牌堆视觉

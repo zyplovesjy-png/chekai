@@ -11,19 +11,6 @@ interface MyHandProps {
   realCompare?: boolean;
 }
 
-/** 无牌时也占位，避免发牌瞬间 HUD 顶高、挤压牌桌 */
-function EmptyHandPlaceholder() {
-  return (
-    <div className="my-hand-area is-empty" aria-hidden="true">
-      <div className="my-hand">
-        <div className="card-slot" />
-        <div className="card-slot" />
-        <div className="card-slot" />
-      </div>
-    </div>
-  );
-}
-
 export function MyHand({
   myHand,
   mySplit,
@@ -33,7 +20,7 @@ export function MyHand({
   realCompare = false,
 }: MyHandProps) {
   if (myHand.length === 0) {
-    return <EmptyHandPlaceholder />;
+    return null;
   }
 
   // 仅配牌阶段（已确认）或真正比牌：左头右尾

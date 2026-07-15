@@ -14,6 +14,8 @@ export interface SeatPlayer {
   buyIn: number;
   ready?: boolean;
   avatar_path?: string;
+  /** 本手进行中入座，下一局才进入玩家列表。 */
+  joiningNextRound?: boolean;
 }
 
 export interface RoomInfo {

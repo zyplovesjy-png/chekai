@@ -277,7 +277,6 @@
 .lab-phone .seat-slot.lab-hit .seat-name,
 .lab-phone .seat-slot.lab-hit .stack,
 .lab-phone .seat-slot.lab-hit .seat-stack-row,
-.lab-phone .seat-slot.lab-hit .timer-num,
 .lab-phone .seat-slot.lab-hit .lab-resize {
   pointer-events: auto !important;
 }
@@ -294,7 +293,10 @@
 
 /* 喊价默认居中锚点，避免堆到左上角 */
 .lab-phone .tea-seat-bet:not(.overridden) {
-  transform: translate(-50%, -50%) !important;
+  transform: translate(-50%, var(--public-bet-offset)) !important;
+}
+.lab-phone .tea-seat-bet-v0:not(.overridden) {
+  transform: translateX(-50%) !important;
 }
 
 .lab-phone .lab-hit.overridden {
@@ -366,6 +368,22 @@
   display: flex !important;
 }
 
+/* 正式房间中 v4 是自己的 HUD 位置，不在桌面重复显示公牌/喊价。 */
+.lab-phone .public-cards-vpos-4,
+.lab-phone .tea-seat-bet-v4 {
+  display: none !important;
+}
+
+/* 比牌阶段正式页会隐藏喊价标记，实验页保持一致。 */
+.lab-phone.lab-phase-compare .tea-seat-bet,
+.lab-phone.lab-phase-done .tea-seat-bet {
+  display: none !important;
+}
+.lab-phone.lab-phase-compare .deck-pile,
+.lab-phone.lab-phase-done .deck-pile {
+  display: none !important;
+}
+
 .lab-phone .tea-hud.lab-hit {
   position: relative !important;
   /* 禁止被通用绝对定位逻辑带出文档流 */
@@ -411,7 +429,8 @@
   user-select: none;
 }
 .lab-phone.cards-bets-lab .lab-chrome-hud {
-  min-height: calc(22px + 36px + 70px + 44px + 20px + var(--safe-b, 0px));
+  min-height: 0;
+  height: clamp(96px, 21dvh, 166px);
   padding: 2px 10px calc(8px + var(--safe-b, 0px));
   opacity: 0.7;
   z-index: 20;
@@ -429,15 +448,10 @@
   border-radius: 8px;
 }
 .lab-phone.cards-bets-lab .table-felt.tea-felt {
-  background:
-    radial-gradient(ellipse 80% 70% at 50% 42%, #31855c 0%, var(--felt-mid) 40%, var(--felt) 70%, var(--felt-deep) 100%) !important;
-  box-shadow:
-    0 0 0 6px var(--wood),
-    0 0 0 8px var(--wood-dark),
-    0 0 0 9px rgba(224, 192, 106, 0.18),
-    inset 0 12px 28px rgba(255, 255, 255, 0.06),
-    inset 0 -20px 36px rgba(0, 0, 0, 0.4),
-    0 12px 24px rgba(0, 0, 0, 0.45) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   opacity: 1 !important;
 }
 .lab-phone.cards-bets-lab .public-cards .card-slot {

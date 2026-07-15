@@ -8,6 +8,7 @@ import { SEAT_IDS, TURN_TIME_SECONDS } from './constants';
 import { calcSeatRotation } from './seatLayout';
 import { estimateDealDurationMs } from './components/AnimatedLayer';
 import type { ChipAnimationEvent } from './pixi/pixiTableTypes';
+import type { QuickMessage, RoomMessage } from '@/types/quickMessages';
 import { estimateSettleChipAnimMs, settleAnimBaseDelayMs, SETTLE_ANIM_TIMING } from './animationEvents';
 import {
   playFoldSound,
@@ -60,6 +61,8 @@ export function useRoomGameController({
   const [dealAnim, setDealAnim] = useState<{ key: number; targets: number[] }>({ key: 0, targets: [] });
   const [chipAnim, setChipAnim] = useState<ChipAnimationEvent | null>(null);
   const [isDealing, setIsDealing] = useState(false);
+  const [quickMessages, setQuickMessages] = useState<QuickMessage[]>([]);
+  const [roomMessages, setRoomMessages] = useState<RoomMessage[]>([]);
 
   const roomRef = useRef(room);
   const myUsernameRef = useRef(myUsername);
@@ -79,6 +82,7 @@ export function useRoomGameController({
   const awaitingGameSyncRef = useRef(false);
   const sendRef = useRef<(data: any) => boolean>(() => false);
   const settleAnimAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roomMessageSeqRef = useRef(0);
   roomRef.current = room;
   myUsernameRef.current = myUsername;
   gameRef.current = game;
@@ -392,14 +396,16 @@ export function useRoomGameController({
         const seatBetActions = new Set(['see', 'raise', 'knock', 'call']);
         if (msg.action.player && seatBetActions.has(msg.action.action)) {
           const visualSeatIndex = visualOf(msg.action.player);
-          if (visualSeatIndex >= 0) {
+          const movedAmount = Number(msg.action.delta ?? msg.action.bet ?? msg.action.amount ?? 0);
+          // 已敲玩家在后续轮次再次“敲”只是在表态，delta=0，不重复播放筹码飞出。
+          if (visualSeatIndex >= 0 && movedAmount > 0) {
             setChipAnim({
               key: Date.now(),
               kind: 'to_seat_bet',
               fromVisualSeat: visualSeatIndex,
               toVisualSeat: visualSeatIndex,
               player: msg.action.player,
-              amount: msg.action.amount ?? msg.action.bet,
+              amount: movedAmount,
             });
           }
         }
@@ -571,6 +577,21 @@ export function useRoomGameController({
         const name = msg.nickname || msg.username || '玩家';
         gameRef.current.pushFeed(`${name} 离开房间`, 'system');
       },
+      quick_messages_updated: (msg: any) => {
+        if (!Array.isArray(msg.messages)) return;
+        setQuickMessages(msg.messages);
+      },
+      room_message: (msg: any) => {
+        const nickname = typeof msg.nickname === 'string' ? msg.nickname.trim() : '';
+        const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+        if (!nickname || !content) return;
+        const item: RoomMessage = {
+          localId: ++roomMessageSeqRef.current,
+          nickname,
+          content,
+        };
+        setRoomMessages((current) => [...current.slice(-49), item]);
+      },
       room_disbanded: () => {
         awaitingGameSyncRef.current = false;
         gameRef.current.reset();
@@ -659,9 +680,22 @@ export function useRoomGameController({
 
   useEffect(() => {
     game.reset();
+    setRoomMessages([]);
+    roomMessageSeqRef.current = 0;
     awaitingGameSyncRef.current = false;
     return () => { game.reset(); awaitingGameSyncRef.current = false; };
   }, [code]);
+
+  useEffect(() => {
+    if (!code) return;
+    let cancelled = false;
+    api('/api/quick-messages').then((result) => {
+      if (!cancelled && result?.ok && Array.isArray(result.messages)) {
+        setQuickMessages(result.messages);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [api, code]);
 
   useEffect(() => {
     if (!code) return;
@@ -819,9 +853,14 @@ export function useRoomGameController({
   }, [room, myUsername, game.phase, game.players]);
 
   const handleStandUp = useCallback(async () => {
-    if (!code) return;
+    if (!code) return false;
     const result = await api(`/api/rooms/${code}/stand`, { method: 'POST' });
-    if (result?.ok) await refreshRoom();
+    if (!result?.ok) {
+      gameRef.current.showToast(result?.msg || '起身失败', { ms: 2800 });
+      return false;
+    }
+    await refreshRoom();
+    return true;
   }, [api, code, refreshRoom]);
 
   const handleAddBuyIn = useCallback(async (amount: number) => {
@@ -863,14 +902,25 @@ export function useRoomGameController({
   }, [api, code, navigate]);
 
   const handleLeaveRoom = useCallback(async () => {
-    if (!code) return;
-    await api(`/api/rooms/${code}/leave`, { method: 'POST' });
+    if (!code) return false;
+    const result = await api(`/api/rooms/${code}/leave`, { method: 'POST' });
+    if (!result?.ok) {
+      gameRef.current.showToast(result?.msg || '返回大厅失败', { ms: 2800 });
+      return false;
+    }
     game.reset();
     navigate('/lobby', { replace: true });
+    return true;
   }, [api, code, game, navigate]);
 
   const handleAction = useCallback((action: string, amount?: number) => {
     send({ type: 'player_action', action, amount });
+  }, [send]);
+
+  const handleSendRoomMessage = useCallback((content: string) => {
+    const ok = send({ type: 'send_room_message', content });
+    if (!ok) gameRef.current.showToast('连接中，请稍后重试', { ms: 2200 });
+    return ok;
   }, [send]);
 
   const handleCardClick = useCallback((idx: number) => {
@@ -988,6 +1038,9 @@ export function useRoomGameController({
     isMyTurn,
     isBetting,
     betStarted,
+    quickMessages,
+    roomMessages,
+    handleSendRoomMessage,
     send,
   };
 }

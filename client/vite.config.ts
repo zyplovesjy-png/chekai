@@ -17,7 +17,7 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true },
       '/ws': { target: 'ws://127.0.0.1:3000', ws: true },
       '/avatars': { target: 'http://127.0.0.1:3000', changeOrigin: true },
-      // 牌图 / 音效在仓库 public/game，由 Express 提供
+      // 游戏音效在仓库 public/game，由 Express 提供
       '/game': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },
