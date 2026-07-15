@@ -257,9 +257,13 @@ html, body {
 .avatar, .avatar-placeholder {
   border-radius: 50%;
   object-fit: cover;
+  object-position: center;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
   border: 2px solid rgba(212, 175, 55, 0.4);
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
+img.avatar { display: block; }
 .avatar-placeholder {
   background: rgba(212, 175, 55, 0.2);
   display: flex; align-items: center; justify-content: center;
@@ -617,6 +621,18 @@ html, body {
   border-bottom: 1px solid rgba(212, 175, 55, 0.12);
 }
 .admin-user-main { display: flex; align-items: center; gap: 10px; flex: 1; text-align: left; }
+.admin-user-avatar,
+.admin-user-main > .avatar-placeholder {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px;
+  max-width: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  object-fit: cover;
+  object-position: center;
+  overflow: hidden;
+}
 .admin-user-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .admin-check {
   display: flex;

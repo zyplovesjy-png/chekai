@@ -824,10 +824,10 @@ class GameEngine {
     return { action: 'see', bet: delta, amount: s.currentBet, delta, allIn: p.pot <= 0, player: p.username, name: p.nickname };
   }
 
-  // 前两张牌阶段可随时丢；第3/4张牌阶段必须先有人开口下注后才能丢。
+  // 任何下注轮都不能白丢：必须先有人叫/返/敲，之后才允许丢牌。
   canFoldNow() {
     const s = this.state;
-    return s.betRound === 1 || s.betStarted || s.currentBet > 0;
+    return s.betStarted || s.currentBet > 0;
   }
 
   doFold(p, { force = false } = {}) {

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
 import { usePresence } from '@/hooks/usePresence';
 import { DURATION_OPTIONS } from '@/stores/roomStore';
+import { getAvatarInitial } from '@/utils/avatar';
 import {
   startGameAssetPreload,
   pauseGameAssetPreload,
@@ -14,22 +15,32 @@ import {
 type Tab = 'rooms' | 'friends' | 'rank' | 'me';
 
 function Avatar({ path, name, size = 36 }: { path?: string | null; name?: string; size?: number }) {
-  if (path) {
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+  const fixedSize = {
+    width: size,
+    height: size,
+    minWidth: size,
+    maxWidth: size,
+    minHeight: size,
+    maxHeight: size,
+  };
+  if (path && failedPath !== path) {
     return (
       <img
         className="avatar"
         src={path}
         alt=""
-        style={{ width: size, height: size }}
+        style={fixedSize}
+        onError={() => setFailedPath(path)}
       />
     );
   }
   return (
     <div
       className="avatar-placeholder"
-      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      style={{ ...fixedSize, fontSize: size * 0.4 }}
     >
-      {name?.[0] || '?'}
+      {getAvatarInitial(name)}
     </div>
   );
 }
@@ -149,8 +160,11 @@ export default function LobbyPage() {
   }, [tab, loadRank]);
 
   const handleLogout = () => {
-    clear();
-    navigate('/login', { replace: true });
+    try {
+      clear();
+    } finally {
+      window.location.replace('/login');
+    }
   };
 
   const openProfile = () => {

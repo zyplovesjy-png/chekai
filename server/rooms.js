@@ -13,7 +13,7 @@ const DEFAULT_BUY_IN = 100;
 const ALLOWED_DURATIONS = [30, 60, 120, 180, 240];
 const ALLOWED_EXTEND = [15, 30, 60];
 const EMPTY_ROOM_DESTROY_MS = 5 * 60 * 1000;
-const LOBBY_GHOST_TIMEOUT_MS = 90 * 1000;
+const LOBBY_GHOST_TIMEOUT_MS = 30 * 1000;
 
 let onRoomMapChanged = null;
 function setRoomMapChangeHandler(fn) {
@@ -226,7 +226,12 @@ function getRoomInfo(code, user) {
     endsAt: room.endsAt || null,
     extendedMinutes: room.extendedMinutes || 0,
     minBuyIn: room.minBuyIn,
-    members: room.members.map(m => ({ username: m.username, nickname: m.nickname, ready: m.ready })),
+    members: room.members.map(m => ({
+      username: m.username,
+      nickname: m.nickname,
+      ready: m.ready,
+      avatar_path: m.avatar_path || null,
+    })),
     seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
     gameStarted: room.gameStarted,
     gameRound: room.gameRound,
@@ -475,10 +480,65 @@ function leaveRoom(code, username) {
     room.host = pick.username;
   }
   if (room.members.length === 0) {
+    // 未开局的空房没有保留价值；立即销毁，避免异常退出后形成不可进入的幽灵房间。
+    if (!room.gameStarted && !room.game) {
+      destroyEmptyRoom(code);
+      return null;
+    }
     scheduleEmptyRoomDestroy(code);
     return null;
   }
   return room;
+}
+
+/**
+ * 房间页断线后，同一用户已回到大厅且没有新的房间连接：视为离开未开局房间。
+ * 刷新/重连时会存在新的 live room socket，因此不会被误清理。
+ */
+function cleanupDisconnectedLobbyMemberships(username, lobbyConnectedAt = Date.now()) {
+  let cleaned = 0;
+  for (const room of [...roomsByCode.values()]) {
+    if (room.gameStarted || room.game?.state) continue;
+    const disconnectedAt = Number(room.disconnected?.[username]) || 0;
+    if (!disconnectedAt) continue;
+    // 旧标签页长期停在大厅时，不应因房间标签页一次网络抖动而把玩家移出。
+    if (Number(lobbyConnectedAt) + 3000 < disconnectedAt) continue;
+    if (!room.members.some((member) => member.username === username)) continue;
+    const hasLiveRoomSocket = [...room.ws].some(
+      (ws) => ws.username === username && ws.readyState === 1,
+    );
+    if (hasLiveRoomSocket) {
+      delete room.disconnected[username];
+      continue;
+    }
+    leaveRoom(room.code, username);
+    broadcastRoom(roomsByCode.get(room.code));
+    cleaned += 1;
+  }
+  return cleaned;
+}
+
+/** 上传头像后同步到所有内存房间；URL 可带版本参数用于浏览器缓存失效。 */
+function updateRoomUserAvatar(username, avatarPath) {
+  let updated = 0;
+  for (const room of roomsByCode.values()) {
+    let roomUpdated = false;
+    for (const member of room.members) {
+      if (member.username !== username) continue;
+      member.avatar_path = avatarPath || null;
+      roomUpdated = true;
+    }
+    for (const seat of room.seats) {
+      if (!seat || seat.username !== username) continue;
+      seat.avatar_path = avatarPath || null;
+      roomUpdated = true;
+    }
+    if (roomUpdated) {
+      updated += 1;
+      broadcastRoom(room);
+    }
+  }
+  return updated;
 }
 
 // ========== 断线重连 ==========
@@ -610,7 +670,8 @@ function broadcastRoundStateLocal(room) {
   }
 }
 
-setInterval(checkDisconnectTimeouts, 10000);
+const disconnectSweepTimer = setInterval(checkDisconnectTimeouts, 10000);
+disconnectSweepTimer.unref?.();
 
 function broadcastRoom(room) {
   if (!room) return;
@@ -624,6 +685,7 @@ function broadcastRoom(room) {
       minBuyIn: room.minBuyIn,
       members: room.members.map(m => ({
         username: m.username, nickname: m.nickname, ready: m.ready,
+        avatar_path: m.avatar_path || null,
         disconnected: !!room.disconnected[m.username],
       })),
       seats: room.seats.map(s => s ? { ...s, ready: !!s.ready } : null),
@@ -652,6 +714,7 @@ module.exports = {
   sitDown, standUp, setSeatReady, startGame,
   leaveRoom, broadcastRoom, finishRound,
   markDisconnected, handleReconnect,
+  cleanupDisconnectedLobbyMemberships, updateRoomUserAvatar,
   getSeatIds,
   setRoomMapChangeHandler, destroyEmptyRoom, scheduleEmptyRoomDestroy, cancelEmptyRoomDestroy,
   accumulateChipArchive,

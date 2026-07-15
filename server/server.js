@@ -16,7 +16,7 @@ const {
   setSeatReady, startGame, leaveRoom, broadcastRoom,
   sitDown, standUp, finishRound,
   getRoomByCode, getRoomsByCreator, getVisibleRooms, getActiveRoomCount,
-  markDisconnected, handleReconnect,
+  markDisconnected, handleReconnect, cleanupDisconnectedLobbyMemberships, updateRoomUserAvatar,
   ALLOWED_DURATIONS, ALLOWED_EXTEND, normalizeDurationMinutes,
   setRoomMapChangeHandler, destroyEmptyRoom,
 } = require('./rooms');
@@ -81,6 +81,17 @@ function markOffline(ws) {
 function isOnline(username) {
   const set = onlineUsers.get(username);
   return !!(set && set.size > 0);
+}
+
+function getLatestLobbyConnectionAt(username) {
+  const set = onlineUsers.get(username);
+  if (!set) return 0;
+  let latest = 0;
+  for (const socket of set) {
+    if (socket.readyState !== 1 || !socket._isLobbyPresence) continue;
+    latest = Math.max(latest, Number(socket._connectedAt) || 0);
+  }
+  return latest;
 }
 
 function getOnlineCount() {
@@ -955,7 +966,9 @@ app.post('/api/user/avatar', authMiddleware, upload.single('avatar'), (req, res)
   if (!req.file) return res.json({ ok: false, msg: '请选择头像文件' });
   const avatarPath = `/avatars/${req.file.filename}`;
   setAvatar(req.user.username, avatarPath);
-  res.json({ ok: true, avatar_path: avatarPath });
+  const publicAvatarPath = `${avatarPath}?v=${Date.now()}`;
+  updateRoomUserAvatar(req.user.username, publicAvatarPath);
+  res.json({ ok: true, avatar_path: publicAvatarPath });
 });
 
 app.post('/api/rooms/:code/voice-messages', authMiddleware, (req, res) => {
@@ -1166,7 +1179,9 @@ app.post('/api/admin/users/:username/avatar', adminMiddleware, adminAvatarUpload
   if (!req.file) return res.json({ ok: false, msg: '请选择头像文件' });
   const avatarPath = `/avatars/${req.file.filename}`;
   setAvatar(req.params.username, avatarPath);
-  res.json({ ok: true, avatar_path: avatarPath });
+  const publicAvatarPath = `${avatarPath}?v=${Date.now()}`;
+  updateRoomUserAvatar(req.params.username, publicAvatarPath);
+  res.json({ ok: true, avatar_path: publicAvatarPath });
 });
 
 app.get('/api/admin/records', adminMiddleware, (req, res) => {
@@ -1450,6 +1465,8 @@ app.post('/api/rooms/:code/add-buyin', authMiddleware, (req, res) => {
 wss.on('connection', (ws) => {
   ws.currentRoomCode = null;
   ws.username = null;
+  ws._connectedAt = Date.now();
+  ws._isLobbyPresence = false;
 
   ws.on('message', (raw) => {
     let msg;
@@ -1469,9 +1486,13 @@ wss.on('connection', (ws) => {
         return;
       }
       ws.username = payload.username;
+      ws._isLobbyPresence = true;
       ws._sessionSid = payload.sid;
       kickUserConnections(payload.username, payload.sid);
       markOnline(payload.username, ws);
+      if (cleanupDisconnectedLobbyMemberships(payload.username, ws._connectedAt) > 0) {
+        broadcastLobbyUpdate();
+      }
       ws.send(JSON.stringify({
         type: 'presence_ok',
         onlineCount: getOnlineCount(),
@@ -1507,6 +1528,7 @@ wss.on('connection', (ws) => {
       }
       ws.currentRoomCode = room.code;
       ws.username = payload.username;
+      ws._isLobbyPresence = false;
       ws._sessionSid = payload.sid;
       kickUserConnections(payload.username, payload.sid);
       markOnline(payload.username, ws);
@@ -1752,7 +1774,7 @@ wss.on('connection', (ws) => {
           break;
         case 'fold':
           if (!engine.canFoldNow()) {
-            sendError(ws, '发第3/4张牌后，无人下注时不能丢牌');
+            sendError(ws, '本轮还没有人下注，不能丢牌');
             return;
           }
           result = engine.doFold(p);
@@ -1959,6 +1981,15 @@ wss.on('connection', (ws) => {
           nickname,
         });
         broadcastRoom(room);
+        // 页面异常退回大厅时，presence 会确认用户仍在线；稍后清掉未开局幽灵成员。
+        const disconnectedUsername = ws.username;
+        setTimeout(() => {
+          const lobbyConnectedAt = getLatestLobbyConnectionAt(disconnectedUsername);
+          if (!lobbyConnectedAt) return;
+          if (cleanupDisconnectedLobbyMemberships(disconnectedUsername, lobbyConnectedAt) > 0) {
+            broadcastLobbyUpdate();
+          }
+        }, 1200);
       }
     }
   });

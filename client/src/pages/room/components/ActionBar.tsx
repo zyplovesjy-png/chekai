@@ -178,7 +178,6 @@ export function ActionBar({
   const broke = totalStack <= 0;
   const shortStack = isMyTurn && isBetting && (cannotAffordSee || broke);
   const noBetYet = !betStarted && currentBet <= 0;
-  const canFoldBeforeBet = phase === 'betting1';
 
   const [localSplitDone, setLocalSplitDone] = useState(false);
   const splitDone = splitConfirmed || localSplitDone;
@@ -233,7 +232,7 @@ export function ActionBar({
     // 叫/返提示已写在按钮上，消息区不再重复
     if (mode === 'short') {
       if (noBetYet) {
-        onHintChange(canFoldBeforeBet ? '本轮无人下注，可休、敲或丢' : '本轮无人下注，只能休或敲');
+        onHintChange(broke ? '本轮无人下注，只能休' : '本轮无人下注，只能休或敲');
       } else {
         onHintChange(broke ? '筹码不足，只能丢' : '筹码不足，只能敲或丢');
       }
@@ -254,7 +253,7 @@ export function ActionBar({
     } else {
       onHintChange('');
     }
-  }, [mode, selectedCount, splitDone, broke, noBetYet, canFoldBeforeBet, onHintChange, phase, canShowSanhua]);
+  }, [mode, selectedCount, splitDone, broke, noBetYet, onHintChange, phase, canShowSanhua]);
 
   const sanhuaBtn = canShowSanhua && (mode === 'open' || mode === 'raised' || mode === 'short' || mode === 'split') ? (
     <button className="tea-pill" type="button" onClick={() => onPlayerAction('show_sanhua')}>
@@ -269,9 +268,6 @@ export function ActionBar({
           <div className="tea-bar open show">
             <div className="side">
               <button className="tea-pill" type="button" onClick={() => onPlayerAction('rest')}>{labels.rest}</button>
-              {canFoldBeforeBet && (
-                <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
-              )}
             </div>
             <DragCta
               verb={labels.call}
@@ -313,9 +309,6 @@ export function ActionBar({
           return (
             <div className="tea-bar short show">
               <button className="tea-pill" type="button" onClick={() => onPlayerAction('rest')}>{labels.rest}</button>
-              {canFoldBeforeBet && (
-                <button className="tea-pill danger" type="button" onClick={() => onPlayerAction('fold')}>{labels.fold}</button>
-              )}
               {!broke && (
                 <button className="tea-pill" type="button" onClick={() => onPlayerAction('knock')}>{labels.knock}</button>
               )}

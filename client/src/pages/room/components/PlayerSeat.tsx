@@ -1,4 +1,6 @@
-﻿import type { GamePlayer } from '@/stores/gameStore';
+﻿import { useState } from 'react';
+import type { GamePlayer } from '@/stores/gameStore';
+import { getAvatarInitial } from '@/utils/avatar';
 import { TURN_TIME_SECONDS } from '../constants';
 
 export function getTimerUrgency(timer?: number | null, max = TURN_TIME_SECONDS): '' | 'urgent' | 'critical' {
@@ -18,7 +20,9 @@ export function Avatar({ nickname, avatarPath, size = 38, timer, timerMax = TURN
   isKnocked?: boolean;
   urgency?: '' | 'urgent' | 'critical';
 }) {
-  const initial = nickname?.[0] || '?';
+  const initial = getAvatarInitial(nickname);
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+  const showImage = !!avatarPath && failedPath !== avatarPath;
   const ringSize = size + 10;
   const r = size / 2 + 2;
   const circ = 2 * Math.PI * r;
@@ -31,7 +35,10 @@ export function Avatar({ nickname, avatarPath, size = 38, timer, timerMax = TURN
       : 'var(--timer, #2ee6c8)';
 
   return (
-    <div className={`avatar-wrap${urgency ? ` ${urgency}` : ''}`} style={{ width: size, height: size }}>
+    <div
+      className={`avatar-wrap${urgency ? ` ${urgency}` : ''}`}
+      style={{ width: size, height: size, minWidth: size, maxWidth: size, minHeight: size, maxHeight: size }}
+    >
       {isKnocked && (
         <div className="flame" aria-hidden="true">
           <span /><span /><span />
@@ -63,8 +70,15 @@ export function Avatar({ nickname, avatarPath, size = 38, timer, timerMax = TURN
           />
         </svg>
       )}
-      <div className="avatar" style={{ width: size, height: size }}>
-        {avatarPath ? <img src={avatarPath} alt="" /> : <span>{initial}</span>}
+      <div
+        className="avatar"
+        style={{ width: size, height: size, minWidth: size, maxWidth: size, minHeight: size, maxHeight: size }}
+      >
+        {showImage ? (
+          <img src={avatarPath} alt="" onError={() => setFailedPath(avatarPath || null)} />
+        ) : (
+          <span>{initial}</span>
+        )}
       </div>
     </div>
   );

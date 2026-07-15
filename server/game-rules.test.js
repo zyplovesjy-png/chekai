@@ -278,13 +278,26 @@ run('shouting uses cumulative totals; chips leave hand but stay out of pot until
   assertConservation(engine, baseline);
 });
 
-run('fold pays current shout into the pot immediately', () => {
+run('first betting street forbids white folds, including after earlier players rest', () => {
+  const engine = makeEngine([100, 120, 100]);
+  const p2 = player(engine, 'p2');
+  const p3 = player(engine, 'p3');
+
+  assert.strictEqual(engine.canFoldNow(), false);
+  assert.strictEqual(engine.doFold(p2), null);
+  assert.ok(engine.doRest(p2));
+  assert.strictEqual(engine.state.betStarted, false);
+  assert.strictEqual(engine.doFold(p3), null);
+});
+
+run('fold pays current shout into the pot after betting has started', () => {
   const engine = makeEngine([100, 120, 100]);
   const baseline = totalChips(engine);
   const p2 = player(engine, 'p2');
 
   engine.doCall(p2, 10);
   assert.strictEqual(engine.state.potPi, 10);
+  assert.strictEqual(engine.canFoldNow(), true);
   const folded = engine.doFold(p2);
 
   assert.strictEqual(folded.lost, 10);
@@ -452,7 +465,7 @@ run('mango chain continues through bet-and-fold and exempts only the winner', ()
   assertConservation(engine, baseline);
 });
 
-run('first-street white folds without a bet do not trigger beat mango', () => {
+run('first-street white folds are rejected before anyone bets', () => {
   const engine = makeEngine([500, 500, 500]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -470,21 +483,15 @@ run('first-street white folds without a bet do not trigger beat mango', () => {
   assert.strictEqual(engine.state.restMangoLevel, 1); // 开局仍按 1 级收取
   assert.ok(engine.state.potPi >= 30); // 含芒果
 
-  // 发完两张牌后无人喊价直接弃牌：赢家收池，但不揍芒，并清掉旧芒链。
-  engine.doFold(p3);
-  engine.doFold(p1);
-  assert.deepStrictEqual(engine.checkBettingDone(), { done: true, reason: 'all_folded', winner: 'p2' });
-  assert.strictEqual(engine.state.restMangoLevel, 0);
+  // 发完两张牌后无人喊价，任何玩家都不能直接白丢。
+  assert.strictEqual(engine.doFold(p3), null);
+  assert.strictEqual(engine.doFold(p1), null);
+  assert.deepStrictEqual(engine.checkBettingDone(), { done: false });
+  assert.strictEqual(engine.state.restMangoLevel, 1);
   assert.strictEqual(engine.state.beatMangoWinner, null);
-
-  engine.state.phase = 'done';
-  engine.rotateBanker();
-  assert.strictEqual(engine.startNewRound(), true);
-  assert.strictEqual(engine.state.potPi, 10);
-  assert.strictEqual(engine.state.openingMango, null);
 });
 
-run('first-street raise followed by folds still triggers beat mango', () => {
+run('first-street folds after betting starts can trigger beat mango', () => {
   const engine = makeEngine([500, 500, 500]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
@@ -504,7 +511,7 @@ run('first-street raise followed by folds still triggers beat mango', () => {
   assert.strictEqual(engine.state.openingMango?.kind, 'beat');
   assert.strictEqual(engine.state.beatMangoWinner, null); // 收取后清空免罚标记
 
-  // 新规则不再排除“面对加价后弃牌”：只要发生在第一轮、最终由有喊价者独赢，就揍芒。
+  // 下一轮 p3 先叫、p1 再返；开口后所有仍在局中的玩家都允许丢牌。
   // Round 2: banker=p2, toAct=[p3,p1,p2]
   const openAmt = engine.state.minBet || 50;
   assert.ok(engine.doCall(p3, openAmt));
@@ -960,17 +967,18 @@ run('fold after bet still triggers beat mango', () => {
   assert.strictEqual(engine.state.beatMangoWinner, 'p2');
 });
 
-run('winner silent while others fold does not trigger beat mango', () => {
-  // 发两张后未下注，其他人全丢：赢家收池，但不揍芒。
+run('white-fold attempts keep the round active and do not trigger beat mango', () => {
+  // 发两张后未下注，丢牌请求无效，不能直接产生赢家。
   const engine = makeEngine([200, 200, 200]);
   const p1 = player(engine, 'p1');
   const p2 = player(engine, 'p2');
   const p3 = player(engine, 'p3');
 
-  engine.doFold(p2);
-  engine.doFold(p3);
+  assert.strictEqual(engine.doFold(p2), null);
+  assert.strictEqual(engine.doFold(p3), null);
   const done = engine.checkBettingDone();
-  assert.deepStrictEqual(done, { done: true, reason: 'all_folded', winner: 'p1' });
+  assert.deepStrictEqual(done, { done: false });
+  assert.strictEqual(p1.folded, false);
   assert.strictEqual(engine.state.roundHadBet, false);
   assert.strictEqual(engine.state.restMangoLevel, 0);
   assert.strictEqual(engine.state.beatMangoWinner, null);

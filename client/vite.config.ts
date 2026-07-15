@@ -22,6 +22,8 @@ export default defineConfig({
     },
   },
   build: {
+    // 鸿蒙系统浏览器/WebView 的内核版本分布较散，避免产物保留过新的语法。
+    target: ['es2018', 'chrome75', 'safari13'],
     outDir: '../public',
     emptyOutDir: false,
   },

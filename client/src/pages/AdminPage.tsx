@@ -3,8 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { useApi, apiUpload } from '@/hooks/useApi';
 import type { QuickMessage } from '@/types/quickMessages';
+import { getAvatarInitial } from '@/utils/avatar';
 
 type Tab = 'users' | 'records' | 'messages';
+
+function AdminUserAvatar({ path, name }: { path?: string | null; name?: string | null }) {
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+  if (path && failedPath !== path) {
+    return (
+      <img
+        className="avatar admin-user-avatar"
+        src={path}
+        alt=""
+        onError={() => setFailedPath(path)}
+      />
+    );
+  }
+  return <div className="avatar-placeholder admin-user-avatar">{getAvatarInitial(name)}</div>;
+}
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -100,8 +116,11 @@ export default function AdminPage() {
   };
 
   const handleLogout = () => {
-    clear();
-    navigate('/login', { replace: true });
+    try {
+      clear();
+    } finally {
+      window.location.replace('/login');
+    }
   };
 
   const handleCreate = async () => {
@@ -291,11 +310,7 @@ export default function AdminPage() {
                     {users.map((u) => (
                       <div key={u.username} className="admin-user-row">
                         <div className="admin-user-main">
-                          {u.avatar_path ? (
-                            <img className="avatar" src={u.avatar_path} alt="" />
-                          ) : (
-                            <div className="avatar-placeholder">{u.nickname?.[0]}</div>
-                          )}
+                          <AdminUserAvatar path={u.avatar_path} name={u.nickname} />
                           <div>
                             <div className="friend-name">
                               {u.nickname}

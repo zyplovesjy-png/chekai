@@ -16,6 +16,48 @@ interface AuthState {
   clear: () => void;
 }
 
+let memoryAuthValue: unknown = null;
+
+/**
+ * 部分手机浏览器（尤其隐私模式/鸿蒙 WebView）会拒绝 sessionStorage，
+ * 甚至可能留下无法 JSON.parse 的半截数据。认证 store 不能因此阻断 React 启动。
+ */
+const safeSessionStorage = {
+  getItem: (key: string) => {
+    try {
+      const val = window.sessionStorage.getItem(key);
+      if (!val) return memoryAuthValue;
+      try {
+        const parsed = JSON.parse(val);
+        memoryAuthValue = parsed;
+        return parsed;
+      } catch {
+        window.sessionStorage.removeItem(key);
+        memoryAuthValue = null;
+        return null;
+      }
+    } catch {
+      return memoryAuthValue;
+    }
+  },
+  setItem: (key: string, val: unknown) => {
+    memoryAuthValue = val;
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify(val));
+    } catch {
+      // 内存兜底仍可维持当前页面会话。
+    }
+  },
+  removeItem: (key: string) => {
+    memoryAuthValue = null;
+    try {
+      window.sessionStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  },
+};
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -28,14 +70,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'chekai-auth',
-      storage: {
-        getItem: (key) => {
-          const val = sessionStorage.getItem(key);
-          return val ? JSON.parse(val) : null;
-        },
-        setItem: (key, val) => sessionStorage.setItem(key, JSON.stringify(val)),
-        removeItem: (key) => sessionStorage.removeItem(key),
-      },
+      storage: safeSessionStorage,
     }
   )
 );

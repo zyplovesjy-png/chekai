@@ -768,28 +768,64 @@ export function useRoomGameController({
 
   useEffect(() => {
     if (!code) return;
-    api(`/api/rooms/${code}`).then((result) => {
-      if (!result.ok) {
-        alert(result.msg || '房间不存在或已解散');
-        navigate('/lobby', { replace: true });
-        return;
-      }
-      const r = result.room;
-      applyRoomPayload(r);
-      if (r.disbanded) {
-        awaitingGameSyncRef.current = false;
-        if (r.lastSettlement?.settlement?.length) {
-          gameRef.current.setSettlement(r.lastSettlement.settlement, r.lastSettlement.potSplit || null);
-        } else {
-          alert('对局已结束，房间已关闭');
-          navigate('/lobby', { replace: true });
+    let cancelled = false;
+    const retryDelays = [0, 800, 1800, 3200];
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // WS 可以先恢复 room_update；HTTP 快照只负责补齐首次状态。
+    ensureConnected();
+    void (async () => {
+      for (let attempt = 0; attempt < retryDelays.length && !cancelled; attempt += 1) {
+        if (retryDelays[attempt] > 0) await wait(retryDelays[attempt]);
+        if (cancelled) return;
+        const result = await api(`/api/rooms/${code}`);
+        if (cancelled) return;
+        if (result?.ok && result.room) {
+          const r = result.room;
+          applyRoomPayload(r);
+          if (r.disbanded) {
+            awaitingGameSyncRef.current = false;
+            if (r.lastSettlement?.settlement?.length) {
+              gameRef.current.setSettlement(r.lastSettlement.settlement, r.lastSettlement.potSplit || null);
+            } else {
+              alert('对局已结束，房间已关闭');
+              navigate('/lobby', { replace: true });
+            }
+            return;
+          }
+          // 对局进行中：等 WS 补 game_sync；未开局则不需要
+          awaitingGameSyncRef.current = !!r.gameStarted;
+          ensureConnected();
+          return;
         }
-        return;
+
+        const roomGone = result?.status === 404
+          || result?.code === 'ROOM_GONE'
+          || /房间不存在|已关闭|已解散/.test(String(result?.msg || ''));
+        if (roomGone) {
+          alert(result?.msg || '房间不存在或已解散');
+          navigate('/lobby', { replace: true });
+          return;
+        }
+
+        // HTTP 短暂失败但 WS 已经送达房间状态时，以实时连接为准。
+        if (roomRef.current?.code === code) {
+          ensureConnected();
+          return;
+        }
+
+        const retryable = result?.networkError || result?.status >= 500 || result?.status === 0;
+        if (!retryable) {
+          gameRef.current.showToast(result?.msg || '房间加载失败，请稍后重试', { ms: 3200 });
+          return;
+        }
       }
-      // 对局进行中：等 WS 补 game_sync；未开局则不需要
-      awaitingGameSyncRef.current = !!r.gameStarted;
-      ensureConnected();
-    });
+      if (!cancelled) {
+        gameRef.current.showToast('网络不稳定，正在等待房间连接恢复', { ms: 3600 });
+        ensureConnected();
+      }
+    })();
+    return () => { cancelled = true; };
   }, [code, api, navigate, applyRoomPayload, ensureConnected]);
 
   // 刷新后若迟迟收不到 game_sync，周期性重发 join_room
