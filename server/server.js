@@ -2147,7 +2147,8 @@ app.get(/^\/(?!api\/|ws$).*/, (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`扯旋服务器已启动: http://localhost:${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`扯旋服务器已启动: http://${HOST}:${PORT}`);
   console.log(`预设账号: zhr/wrz/my/zml/zyp/mxc/syf/lql / 123456`);
 });
