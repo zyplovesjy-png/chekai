@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const { WebSocketServer } = require('ws');
 const {
@@ -43,10 +44,19 @@ const {
   createRoomMessageBroadcast,
   validateQuickMessageList,
 } = require('./quick-messages');
+const {
+  MAX_VOICE_FILE_BYTES,
+  MIME_EXTENSIONS,
+  VOICE_RESERVATION_TTL_MS,
+  VoiceMessageManager,
+  detectVoiceMime,
+} = require('./voice-messages');
 
 /* ---------- 在线 presence（大厅 + 房间共用） ---------- */
 const onlineUsers = new Map(); // username -> Set<ws>
 const roomMessageRateLimiter = new RoomMessageRateLimiter();
+const voiceMessageRateLimiter = new RoomMessageRateLimiter(1000);
+const voiceMessageManager = new VoiceMessageManager();
 
 function markOnline(username, ws) {
   if (!username) return;
@@ -170,6 +180,40 @@ const upload = multer({
   }
 });
 
+// 即时语音只做短期中转：服务重启时清空遗留文件，不形成语音历史。
+const voiceMessagesDir = path.join(__dirname, '..', 'data', 'voice-messages');
+if (!fs.existsSync(voiceMessagesDir)) fs.mkdirSync(voiceMessagesDir, { recursive: true });
+for (const entry of fs.readdirSync(voiceMessagesDir, { withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  try { fs.unlinkSync(path.join(voiceMessagesDir, entry.name)); } catch { /* ignore stale file */ }
+}
+
+const voiceUpload = multer({
+  storage: multer.diskStorage({
+    destination: voiceMessagesDir,
+    filename: (_req, _file, cb) => cb(null, `${crypto.randomUUID()}.voice`),
+  }),
+  limits: { files: 1, fileSize: MAX_VOICE_FILE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const mimeType = String(file.mimetype || '').split(';')[0].toLowerCase();
+    cb(null, !!MIME_EXTENSIONS[mimeType]);
+  },
+});
+
+function unlinkVoiceFile(recordOrPath) {
+  const filePath = typeof recordOrPath === 'string' ? recordOrPath : recordOrPath?.filePath;
+  if (!filePath) return;
+  try { fs.unlinkSync(filePath); } catch (error) {
+    if (error?.code !== 'ENOENT') console.error('[voice] delete failed:', error.message);
+  }
+}
+
+function removeVoiceMessage(id) {
+  const removed = voiceMessageManager.remove(id);
+  unlinkVoiceFile(removed);
+  return removed;
+}
+
 /* ---------- 工具 ---------- */
 function sendToRoom(room, data) {
   const msg = JSON.stringify(data);
@@ -177,6 +221,45 @@ function sendToRoom(room, data) {
     if (ws.readyState === 1) ws.send(msg);
   }
 }
+
+function flushVoiceMessages(roomCode) {
+  const room = roomsByCode.get(roomCode);
+  if (!room) {
+    voiceMessageManager.removeRoom(roomCode).forEach(unlinkVoiceFile);
+    return;
+  }
+  const { ready, expired } = voiceMessageManager.drainBroadcastable(roomCode);
+  expired.forEach(unlinkVoiceFile);
+  for (const record of ready) {
+    const recipients = new Set();
+    for (const socket of room.ws) {
+      if (socket.readyState === 1 && socket.username && socket.username !== record.username) {
+        recipients.add(socket.username);
+      }
+    }
+    voiceMessageManager.markRecipients(record.id, recipients);
+    sendToRoom(room, {
+      type: 'voice_message',
+      id: record.id,
+      sequence: record.sequence,
+      username: record.username,
+      nickname: record.nickname,
+      durationMs: record.durationMs,
+      mimeType: record.mimeType,
+      url: `/api/voice-messages/${record.id}`,
+    });
+    // 房间里没有其他在线接收者时，无需保留已经上传的文件。
+    if (recipients.size === 0) removeVoiceMessage(record.id);
+  }
+}
+
+function cleanupExpiredVoiceMessages() {
+  voiceMessageManager.cleanupExpired().forEach(unlinkVoiceFile);
+  for (const roomCode of voiceMessageManager.rooms.keys()) flushVoiceMessages(roomCode);
+}
+
+const voiceCleanupTimer = setInterval(cleanupExpiredVoiceMessages, 30_000);
+voiceCleanupTimer.unref?.();
 
 function roomMemberName(room, username) {
   if (!room || !username) return username || '玩家';
@@ -875,6 +958,79 @@ app.post('/api/user/avatar', authMiddleware, upload.single('avatar'), (req, res)
   res.json({ ok: true, avatar_path: avatarPath });
 });
 
+app.post('/api/rooms/:code/voice-messages', authMiddleware, (req, res) => {
+  voiceUpload.single('voice')(req, res, (uploadError) => {
+    if (uploadError) {
+      const msg = uploadError.code === 'LIMIT_FILE_SIZE'
+        ? '语音文件过大，请缩短录音时间'
+        : '语音上传失败';
+      return res.status(400).json({ ok: false, msg });
+    }
+
+    const reject = (status, msg) => {
+      unlinkVoiceFile(req.file?.path);
+      return res.status(status).json({ ok: false, msg });
+    };
+    const room = roomsByCode.get(req.params.code);
+    if (!room || room.disbanded) return reject(404, '房间不存在或已关闭');
+    if (!room.members.some((member) => member.username === req.user.username)) {
+      return reject(403, '你当前不在房间内');
+    }
+    if (!req.file) return reject(400, '没有收到有效的语音文件');
+
+    let detectedMime = null;
+    try {
+      detectedMime = detectVoiceMime(fs.readFileSync(req.file.path));
+    } catch {
+      return reject(400, '语音文件读取失败');
+    }
+    if (!detectedMime) return reject(400, '无法识别语音文件格式');
+
+    const completed = voiceMessageManager.complete({
+      id: String(req.body?.reservationId || ''),
+      roomCode: room.code,
+      username: req.user.username,
+      filePath: req.file.path,
+      fileSize: req.file.size,
+      mimeType: detectedMime,
+      durationMs: req.body?.durationMs,
+    });
+    if (!completed.ok) return reject(400, completed.msg || '语音上传失败');
+
+    flushVoiceMessages(room.code);
+    return res.json({
+      ok: true,
+      id: completed.record.id,
+      sequence: completed.record.sequence,
+      durationMs: completed.record.durationMs,
+    });
+  });
+});
+
+app.get('/api/voice-messages/:id', authMiddleware, (req, res) => {
+  const record = voiceMessageManager.get(String(req.params.id || ''));
+  if (!record || record.status !== 'ready' || !record.filePath) {
+    return res.status(404).json({ ok: false, msg: '语音已播放或已过期' });
+  }
+  const room = roomsByCode.get(record.roomCode);
+  if (!room || !room.members.some((member) => member.username === req.user.username)) {
+    return res.status(403).json({ ok: false, msg: '无权访问该语音' });
+  }
+  if (!fs.existsSync(record.filePath)) {
+    voiceMessageManager.remove(record.id);
+    return res.status(404).json({ ok: false, msg: '语音文件不存在' });
+  }
+
+  res.set({
+    'Cache-Control': 'no-store, max-age=0',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.type(record.mimeType);
+  return res.sendFile(record.filePath);
+});
+
 app.get('/api/users', authMiddleware, (req, res) => {
   res.json({ ok: true, users: listUsers() });
 });
@@ -1431,6 +1587,74 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'reserve_voice_message') {
+      const clientRequestId = typeof msg.clientRequestId === 'string'
+        ? msg.clientRequestId.slice(0, 80)
+        : '';
+      const fail = (errorMessage) => {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: 'voice_message_reserve_failed',
+            clientRequestId,
+            msg: errorMessage,
+          }));
+        }
+      };
+      const room = roomsByCode.get(ws.currentRoomCode);
+      if (!clientRequestId) {
+        fail('语音请求无效');
+        return;
+      }
+      if (!room || room.disbanded || !ws.username || !room.members.some((m) => m.username === ws.username)) {
+        fail('你当前不在房间内');
+        return;
+      }
+      const limit = voiceMessageRateLimiter.check(`${room.code}:${ws.username}`);
+      if (!limit.ok) {
+        fail('语音发送太频繁，请稍后再试');
+        return;
+      }
+      const reserved = voiceMessageManager.reserve({
+        roomCode: room.code,
+        username: ws.username,
+        nickname: roomMessageNickname(room, ws.username),
+      });
+      if (!reserved.ok) {
+        fail(reserved.msg || '语音预约失败');
+        return;
+      }
+      ws.send(JSON.stringify({
+        type: 'voice_message_reserved',
+        clientRequestId,
+        reservationId: reserved.record.id,
+        sequence: reserved.record.sequence,
+        expiresAt: reserved.record.reservationExpiresAt,
+      }));
+      const expiryTimer = setTimeout(
+        () => flushVoiceMessages(room.code),
+        VOICE_RESERVATION_TTL_MS + 50,
+      );
+      expiryTimer.unref?.();
+      return;
+    }
+
+    if (msg.type === 'voice_message_played') {
+      if (!ws.username || typeof msg.id !== 'string') return;
+      const acknowledged = voiceMessageManager.acknowledgePlayed(msg.id, ws.username);
+      if (acknowledged.complete) removeVoiceMessage(msg.id);
+      return;
+    }
+
+    if (msg.type === 'cancel_voice_message_reservation') {
+      if (!ws.username || typeof msg.id !== 'string') return;
+      const record = voiceMessageManager.get(msg.id);
+      if (!record || record.status !== 'reserved' || record.username !== ws.username) return;
+      const roomCode = record.roomCode;
+      removeVoiceMessage(record.id);
+      flushVoiceMessages(roomCode);
+      return;
+    }
+
     // 破产决策：加簸继续 / 立即退出（支持多人同时输光）
     if (msg.type === 'buyin_decision') {
       const room = roomsByCode.get(ws.currentRoomCode);
@@ -1721,6 +1945,8 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     markOffline(ws);
     if (ws.currentRoomCode && ws.username) {
+      roomMessageRateLimiter.clear(`${ws.currentRoomCode}:${ws.username}`);
+      voiceMessageRateLimiter.clear(`${ws.currentRoomCode}:${ws.username}`);
       const room = roomsByCode.get(ws.currentRoomCode);
       if (room) {
         room.ws.delete(ws);

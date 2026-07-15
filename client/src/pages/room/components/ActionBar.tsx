@@ -24,6 +24,7 @@ interface ActionBarProps {
   onStartGame: () => void;
   onReady: () => void;
   onHintChange?: (hint: string) => void;
+  idleLabel?: string;
 }
 
 type BarMode = 'open' | 'raised' | 'short' | 'split' | 'compare' | 'idle' | 'lobby';
@@ -148,6 +149,7 @@ export function ActionBar({
   onStartGame,
   onReady,
   onHintChange,
+  idleLabel,
 }: ActionBarProps) {
   const totalStack = (playerChips || 0) + (playerRoundCommitted || 0);
   const raiseMin = betStarted ? Math.max(1, currentBet * 2) : Math.max(1, minBet);
@@ -387,7 +389,7 @@ export function ActionBar({
       default:
         return (
           <div className="tea-bar idle show">
-            <span className="tea-idle">{labels.wait}</span>
+            <span className="tea-idle">{idleLabel || labels.wait}</span>
           </div>
         );
     }

@@ -24,6 +24,7 @@ const buffers = new Map<SfxKind, AudioBuffer[]>();
 const readyUrls = new Map<SfxKind, string[]>();
 let loadPromise: Promise<void> | null = null;
 let sfxEnabled = readEnabled();
+let voiceDucking = false;
 
 function readEnabled(): boolean {
   try {
@@ -53,6 +54,11 @@ export function toggleSfxEnabled() {
   setSfxEnabled(!sfxEnabled);
   if (sfxEnabled) unlockAudio();
   return sfxEnabled;
+}
+
+/** 语音消息播放时压低牌局音效，避免盖住人声。 */
+export function setVoiceDucking(active: boolean) {
+  voiceDucking = !!active;
 }
 
 function soundUrl(file: string): string {
@@ -248,16 +254,18 @@ function play(kind: SfxKind, volume = 0.35) {
   if (!unlocked) unlockAudio();
   else resumeSync();
 
+  const liveVolume = voiceDucking ? volume * 0.18 : volume;
+
   // File SFX only — never synthetic beeps
-  if (playHtml(kind, volume)) {
+  if (playHtml(kind, liveVolume)) {
     void ensureFilesLoaded();
     return;
   }
   void (async () => {
     await ensureFilesLoaded();
     if (!sfxEnabled) return;
-    if (playHtml(kind, volume)) return;
-    await playBuffer(kind, volume);
+    if (playHtml(kind, liveVolume)) return;
+    await playBuffer(kind, liveVolume);
   })();
 }
 

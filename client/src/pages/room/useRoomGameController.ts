@@ -4,6 +4,8 @@ import { useGameStore, type RoundRecord } from '@/stores/gameStore';
 import type { RoomInfo } from '@/stores/roomStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { apiUpload } from '@/hooks/useApi';
+import { useAuthStore } from '@/stores/authStore';
 import { SEAT_IDS, TURN_TIME_SECONDS } from './constants';
 import { calcSeatRotation } from './seatLayout';
 import { estimateDealDurationMs } from './components/AnimatedLayer';
@@ -16,8 +18,17 @@ import {
   playWarnSound,
   playWinSound,
 } from './sounds';
+import {
+  useVoiceMessagePlayback,
+  type VoiceMessageEnvelope,
+} from './useVoiceMessagePlayback';
 
 type ApiFn = (url: string, opts?: RequestInit) => Promise<any>;
+
+interface VoiceReservation {
+  reservationId: string;
+  sequence: number;
+}
 
 interface UseRoomGameControllerArgs {
   code: string | undefined;
@@ -37,6 +48,7 @@ export function useRoomGameController({
   setRoom,
 }: UseRoomGameControllerArgs) {
   const game = useGameStore();
+  const token = useAuthStore((state) => state.token);
   const [showBuyIn, setShowBuyIn] = useState(false);
   const [buyInMode, setBuyInMode] = useState<'full' | 'topup'>('full');
   const [carryChips, setCarryChips] = useState(0);
@@ -83,11 +95,27 @@ export function useRoomGameController({
   const sendRef = useRef<(data: any) => boolean>(() => false);
   const settleAnimAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomMessageSeqRef = useRef(0);
+  const voiceReservationWaitersRef = useRef(new Map<string, {
+    resolve: (reservation: VoiceReservation) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>());
   roomRef.current = room;
   myUsernameRef.current = myUsername;
   gameRef.current = game;
   navigateRef.current = navigate;
   setRoomRef.current = setRoom;
+
+  const voicePlayback = useVoiceMessagePlayback({
+    token,
+    myUsername,
+    onAcknowledge: (id) => {
+      sendRef.current({ type: 'voice_message_played', id });
+    },
+    onFeedback: (message) => {
+      gameRef.current.showToast(message, { ms: 2400 });
+    },
+  });
 
   const { visualSeats } = useMemo(() => calcSeatRotation(room, myUsername), [room, myUsername]);
   const currentActor = game.toAct?.[0] || null;
@@ -592,6 +620,39 @@ export function useRoomGameController({
         };
         setRoomMessages((current) => [...current.slice(-49), item]);
       },
+      voice_message_reserved: (msg: any) => {
+        const clientRequestId = typeof msg.clientRequestId === 'string' ? msg.clientRequestId : '';
+        const waiter = voiceReservationWaitersRef.current.get(clientRequestId);
+        if (!waiter) return;
+        voiceReservationWaitersRef.current.delete(clientRequestId);
+        clearTimeout(waiter.timer);
+        if (typeof msg.reservationId !== 'string' || !Number.isFinite(Number(msg.sequence))) {
+          waiter.reject(new Error('语音预约响应无效'));
+          return;
+        }
+        waiter.resolve({ reservationId: msg.reservationId, sequence: Number(msg.sequence) });
+      },
+      voice_message_reserve_failed: (msg: any) => {
+        const clientRequestId = typeof msg.clientRequestId === 'string' ? msg.clientRequestId : '';
+        const waiter = voiceReservationWaitersRef.current.get(clientRequestId);
+        if (!waiter) return;
+        voiceReservationWaitersRef.current.delete(clientRequestId);
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error(msg.msg || '语音预约失败'));
+      },
+      voice_message: (msg: any) => {
+        const item: VoiceMessageEnvelope = {
+          id: typeof msg.id === 'string' ? msg.id : '',
+          sequence: Number(msg.sequence),
+          username: typeof msg.username === 'string' ? msg.username : '',
+          nickname: typeof msg.nickname === 'string' ? msg.nickname : '玩家',
+          durationMs: Number(msg.durationMs),
+          mimeType: typeof msg.mimeType === 'string' ? msg.mimeType : '',
+          url: typeof msg.url === 'string' ? msg.url : '',
+        };
+        if (!item.id || !item.username || !item.url || !Number.isFinite(item.sequence)) return;
+        voicePlayback.enqueue(item);
+      },
       room_disbanded: () => {
         awaitingGameSyncRef.current = false;
         gameRef.current.reset();
@@ -683,7 +744,15 @@ export function useRoomGameController({
     setRoomMessages([]);
     roomMessageSeqRef.current = 0;
     awaitingGameSyncRef.current = false;
-    return () => { game.reset(); awaitingGameSyncRef.current = false; };
+    return () => {
+      game.reset();
+      awaitingGameSyncRef.current = false;
+      for (const waiter of voiceReservationWaitersRef.current.values()) {
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error('已离开房间'));
+      }
+      voiceReservationWaitersRef.current.clear();
+    };
   }, [code]);
 
   useEffect(() => {
@@ -923,6 +992,63 @@ export function useRoomGameController({
     return ok;
   }, [send]);
 
+  const handleSendVoiceMessage = useCallback(async (
+    blob: Blob,
+    durationMs: number,
+    mimeType: string,
+  ) => {
+    if (!code || !token) {
+      gameRef.current.showToast('连接中，请稍后重试', { ms: 2200 });
+      return false;
+    }
+    const clientRequestId = globalThis.crypto?.randomUUID?.()
+      || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    let reservation: VoiceReservation;
+    try {
+      reservation = await new Promise<VoiceReservation>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          voiceReservationWaitersRef.current.delete(clientRequestId);
+          reject(new Error('服务器响应超时'));
+        }, 5000);
+        voiceReservationWaitersRef.current.set(clientRequestId, { resolve, reject, timer });
+        if (!sendRef.current({ type: 'reserve_voice_message', clientRequestId })) {
+          clearTimeout(timer);
+          voiceReservationWaitersRef.current.delete(clientRequestId);
+          reject(new Error('连接中，请稍后重试'));
+        }
+      });
+    } catch (error) {
+      gameRef.current.showToast(error instanceof Error ? error.message : '语音发送失败', { ms: 2600 });
+      return false;
+    }
+
+    const baseMimeType = mimeType.split(';')[0].toLowerCase();
+    const extension = baseMimeType === 'audio/mp4'
+      ? '.m4a'
+      : baseMimeType === 'audio/ogg'
+        ? '.ogg'
+        : '.webm';
+    const formData = new FormData();
+    formData.append('reservationId', reservation.reservationId);
+    formData.append('durationMs', String(Math.round(durationMs)));
+    formData.append('voice', blob, `voice${extension}`);
+
+    try {
+      const result = await apiUpload(`/api/rooms/${code}/voice-messages`, formData, token);
+      if (!result?.ok) {
+        sendRef.current({ type: 'cancel_voice_message_reservation', id: reservation.reservationId });
+        gameRef.current.showToast(result?.msg || '语音发送失败', { ms: 2600 });
+        return false;
+      }
+      return true;
+    } catch {
+      sendRef.current({ type: 'cancel_voice_message_reservation', id: reservation.reservationId });
+      gameRef.current.showToast('语音上传失败，请检查网络', { ms: 2600 });
+      return false;
+    }
+  }, [code, token]);
+
   const handleCardClick = useCallback((idx: number) => {
     if (game.phase !== 'selecting') return;
     game.toggleSelected(idx);
@@ -1041,6 +1167,12 @@ export function useRoomGameController({
     quickMessages,
     roomMessages,
     handleSendRoomMessage,
+    handleSendVoiceMessage,
+    voiceMessagesEnabled: voicePlayback.enabled,
+    setVoiceMessagesEnabled: voicePlayback.setEnabled,
+    voiceNowPlaying: voicePlayback.nowPlaying,
+    voicePlaybackBlocked: voicePlayback.playbackBlocked,
+    resumeVoicePlayback: voicePlayback.resumePlayback,
     send,
   };
 }

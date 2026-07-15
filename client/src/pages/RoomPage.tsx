@@ -11,6 +11,7 @@ import { SeatBetMarkers } from './room/components/SeatBetMarkers';
 import { useRoomGameController } from './room/useRoomGameController';
 import { HistoryDrawer } from './room/components/HistoryDrawer';
 import { QuickMessageDrawer } from './room/components/QuickMessageDrawer';
+import { VoiceRecorderButton } from './room/components/VoiceRecorderButton';
 import { BarrageLayer } from './room/components/BarrageLayer';
 import { ActionBar } from './room/components/ActionBar';
 import { AnimatedLayer } from './room/components/AnimatedLayer';
@@ -96,6 +97,12 @@ export default function RoomPage() {
     quickMessages,
     roomMessages,
     handleSendRoomMessage,
+    handleSendVoiceMessage,
+    voiceMessagesEnabled,
+    setVoiceMessagesEnabled,
+    voiceNowPlaying,
+    voicePlaybackBlocked,
+    resumeVoicePlayback,
   } = useRoomGameController({ code, room, myUsername, navigate, api, setRoom });
 
   const [showAddBuyIn, setShowAddBuyIn] = useState(false);
@@ -132,7 +139,7 @@ export default function RoomPage() {
     : waitingForNextRound
       ? 'joining'
       : 'player';
-  const showPlayerHud = viewMode === 'player';
+  const showPlayerHud = viewMode !== 'spectator';
   const canStandUp = !!mySeat && (!activeHand || !myPlayer || !!myPlayer.folded);
   const canLeaveRoom = !activeHand || !myPlayer || !!myPlayer.folded;
   const isHostUser = !!room && myUsername === room.host;
@@ -174,9 +181,7 @@ export default function RoomPage() {
   })();
 
   const privateGuide = actionHint
-    || (!game.gameStarted
-      ? (mySeat ? '等待房主开始游戏' : '请选择座位加入')
-      : '');
+    || (!game.gameStarted && !mySeat ? '请选择座位加入' : '');
 
   const myTotalPot = (myPlayer?.pot ?? mySeat?.buyIn ?? 0) + (myPlayer?.committed || 0);
   const myAvailableChips = myPlayer?.pot ?? mySeat?.buyIn ?? 0;
@@ -358,9 +363,23 @@ export default function RoomPage() {
           centerMessage={null}
           renderDealCards
         />
+
+        {voiceNowPlaying && (
+          <div className="voice-now-playing" aria-live="polite">
+            <span className="voice-now-playing-bars" aria-hidden="true"><i /><i /><i /><i /></span>
+            <span><strong>{voiceNowPlaying.nickname}</strong> 正在说话</span>
+            <time>{Math.max(1, Math.ceil(voiceNowPlaying.durationMs / 1000))}s</time>
+          </div>
+        )}
+
+        {voicePlaybackBlocked && (
+          <button type="button" className="voice-playback-gate" onClick={resumeVoicePlayback}>
+            点击播放收到的语音
+          </button>
+        )}
       </main>
 
-      {/* 观战者和等待下局的入座者不渲染游戏操作 HUD。 */}
+      {/* 已入座用户始终使用同一套 HUD；等待下局状态由底部操作区承载。 */}
       {showPlayerHud && (
       <footer className="tea-hud">
         <div
@@ -426,19 +445,25 @@ export default function RoomPage() {
             </div>
           </div>
           {privateGuide && <div className="hint-mini private-guide">{privateGuide}</div>}
-          <button
-            type="button"
-            className="room-message-button"
-            aria-label="打开快捷消息"
-            onClick={() => {
-              setShowHistory(false);
-              setShowQuickMessages(true);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
-            </svg>
-          </button>
+          <div className="room-communication-controls">
+            <VoiceRecorderButton
+              onSend={handleSendVoiceMessage}
+              onFeedback={(message) => game.showToast(message, { ms: 2400 })}
+            />
+            <button
+              type="button"
+              className="room-message-button"
+              aria-label="打开快捷消息"
+              onClick={() => {
+                setShowHistory(false);
+                setShowQuickMessages(true);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {game.myHand.length > 0 && (
@@ -453,7 +478,7 @@ export default function RoomPage() {
         )}
 
         <ActionBar
-          phase={room?.paused ? 'idle' : (isDealing ? 'dealing' : game.phase)}
+          phase={waitingForNextRound ? 'idle' : (room?.paused ? 'idle' : (isDealing ? 'dealing' : game.phase))}
           isMyTurn={!isDealing && !room?.paused && isMyTurn}
           isBetting={isBetting}
           betStarted={betStarted}
@@ -479,25 +504,32 @@ export default function RoomPage() {
           onStartGame={handleStartGame}
           onReady={handleReady}
           onHintChange={setActionHint}
+          idleLabel={waitingForNextRound ? '等待下局…' : undefined}
         />
       </footer>
       )}
 
       {!showPlayerHud && (
-        <button
-          type="button"
-          className="spectator-message-button"
-          aria-label="打开快捷消息"
-          onClick={() => {
-            setShowHistory(false);
-            setShowQuickMessages(true);
-          }}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
-          </svg>
-          <span>{viewMode === 'joining' ? '等待下局 · 消息' : '快捷消息'}</span>
-        </button>
+        <div className="spectator-communication-controls">
+          <VoiceRecorderButton
+            className="spectator-voice-button"
+            onSend={handleSendVoiceMessage}
+            onFeedback={(message) => game.showToast(message, { ms: 2400 })}
+          />
+          <button
+            type="button"
+            className="spectator-message-button"
+            aria-label="打开快捷消息"
+            onClick={() => {
+              setShowHistory(false);
+              setShowQuickMessages(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h16v12H8l-4 4V4Zm4 4h8M8 12h5" />
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* 菜单弹层：观战 / 加簸 / 返回 */}
@@ -511,6 +543,14 @@ export default function RoomPage() {
               onClick={() => { closeMenu(); setShowSpectators(true); }}
             >
               观战席 <span>{spectators.length}</span>
+            </button>
+            <button
+              className="menu-item"
+              type="button"
+              aria-pressed={voiceMessagesEnabled}
+              onClick={() => setVoiceMessagesEnabled(!voiceMessagesEnabled)}
+            >
+              语音播报 <span>{voiceMessagesEnabled ? '已开启' : '已关闭'}</span>
             </button>
             {room?.seats.some((s) => s?.username === myUsername) && (
               <button
