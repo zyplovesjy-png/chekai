@@ -89,7 +89,9 @@ db.exec(`
     cards_head TEXT NOT NULL DEFAULT '',
     cards_tail TEXT NOT NULL DEFAULT '',
     delta INTEGER NOT NULL DEFAULT 0,
-    result TEXT NOT NULL DEFAULT 'tie'
+    result TEXT NOT NULL DEFAULT 'tie',
+    received_amount INTEGER NOT NULL DEFAULT 0,
+    is_winner INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS player_stats (
@@ -145,6 +147,8 @@ ensureColumn('hand_players', 'cards_head', "cards_head TEXT NOT NULL DEFAULT ''"
 ensureColumn('hand_players', 'cards_tail', "cards_tail TEXT NOT NULL DEFAULT ''");
 ensureColumn('hand_players', 'folded', 'folded INTEGER NOT NULL DEFAULT 0');
 ensureColumn('hand_players', 'rested', 'rested INTEGER NOT NULL DEFAULT 0');
+ensureColumn('hand_players', 'received_amount', 'received_amount INTEGER NOT NULL DEFAULT 0');
+ensureColumn('hand_players', 'is_winner', 'is_winner INTEGER NOT NULL DEFAULT 0');
 ensureColumn('hand_records', 'banker_username', 'banker_username TEXT');
 ensureColumn('game_sessions', 'duration_minutes', 'duration_minutes INTEGER NOT NULL DEFAULT 0');
 ensureColumn('game_sessions', 'ends_at', 'ends_at INTEGER');
@@ -423,8 +427,10 @@ function saveHandRecord(sessionId, handNo, players, endReason, bankerUsername = 
     'INSERT INTO hand_records (session_id, hand_no, end_reason, banker_username) VALUES (?, ?, ?, ?)'
   );
   const insertPlayer = db.prepare(
-    `INSERT INTO hand_players (hand_id, username, nickname, cards, cards_head, cards_tail, delta, result, folded, rested)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO hand_players (
+       hand_id, username, nickname, cards, cards_head, cards_tail,
+       delta, result, folded, rested, received_amount, is_winner
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   // 胜负场次按手牌统计；净输赢只记终局结算（session_players），避免底池跨手导致总和≠0
   const upsertStats = db.prepare(`
@@ -442,7 +448,10 @@ function saveHandRecord(sessionId, handNo, players, endReason, bankerUsername = 
     const handId = insertHand.run(sessionId, handNo, endReason || null, bankerUsername || null).lastInsertRowid;
     for (const p of players) {
       const delta = p.delta || 0;
-      const result = delta > 0 ? 'win' : delta < 0 ? 'loss' : 'tie';
+      const receivedAmount = Math.max(0, Math.floor(Number(p.receivedAmount) || 0));
+      const isWinner = !!p.isWinner || receivedAmount > 0;
+      // 只要本手真实收到过其他玩家或底池的筹码，就记为赢家；净值仅用于展示盈亏。
+      const result = isWinner ? 'win' : delta < 0 ? 'loss' : 'tie';
       const folded = p.folded ? 1 : 0;
       // 全休局：未弃牌者记为休
       const rested = p.rested || (endReason === 'rest_cross' && !folded) ? 1 : 0;
@@ -456,7 +465,9 @@ function saveHandRecord(sessionId, handNo, players, endReason, bankerUsername = 
         delta,
         result,
         folded,
-        rested
+        rested,
+        receivedAmount,
+        isWinner ? 1 : 0
       );
       upsertStats.run({
         username: p.username,
@@ -699,11 +710,15 @@ function getSessionDetail(sessionId) {
   ).all(sessionId);
   const handDetails = hands.map((h) => {
     const players = db.prepare(
-      'SELECT username, nickname, cards, cards_head, cards_tail, delta, result, folded, rested FROM hand_players WHERE hand_id = ?'
+      `SELECT username, nickname, cards, cards_head, cards_tail, delta, result,
+              folded, rested, received_amount, is_winner
+       FROM hand_players WHERE hand_id = ?`
     ).all(h.id).map((p) => ({
       ...p,
       folded: !!p.folded,
       rested: !!p.rested || (h.end_reason === 'rest_cross' && !p.folded),
+      isWinner: !!p.is_winner,
+      receivedAmount: p.received_amount || 0,
       cardIds: decodeCards(p.cards),
       headIds: decodeCards(p.cards_head),
       tailIds: decodeCards(p.cards_tail),
@@ -726,7 +741,8 @@ function listSessionHandsForHistory(sessionId) {
     'SELECT id, hand_no, end_reason, banker_username FROM hand_records WHERE session_id = ? ORDER BY hand_no ASC'
   ).all(sessionId);
   const loadPlayers = db.prepare(
-    `SELECT username, nickname, cards, cards_head, cards_tail, delta, folded, rested
+    `SELECT username, nickname, cards, cards_head, cards_tail, delta, folded, rested,
+            received_amount, is_winner
      FROM hand_players WHERE hand_id = ?`
   );
   return hands.map((h) => ({
@@ -742,6 +758,8 @@ function listSessionHandsForHistory(sessionId) {
       delta: p.delta || 0,
       folded: !!p.folded,
       rested: !!p.rested || (h.end_reason === 'rest_cross' && !p.folded),
+      receivedAmount: p.received_amount || 0,
+      isWinner: !!p.is_winner,
     })),
   }));
 }

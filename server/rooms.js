@@ -2,6 +2,10 @@
 const { attachLogger, getLogger } = require('./game-logger');
 const { accumulateChipArchive, reclaimChipArchive, getCarryChips, archivePlayerOrSeat } = require('./chip-ledger');
 const { getRoomExitBlockReason } = require('./room-exit-rules');
+const {
+  cancelPendingDisconnectRemoval,
+  shouldDeferDisconnectTimeout,
+} = require('./selecting-disconnect');
 
 // 内存存储所有房间
 const roomsByCode = new Map();
@@ -109,6 +113,8 @@ function createRoom(host, options = {}) {
     createdAt: Date.now(),
     ws: new Set(),
     disconnected: {},
+    // 配牌阶段断线者：先自动配牌并打完本手，局后仍未重连才移出。
+    pendingDisconnectAfterHand: new Set(),
   };
   attachLogger(room);
   roomsByCode.set(code, room);
@@ -560,6 +566,7 @@ function handleReconnect(code, username) {
   }
   const wasDisconnected = !!room.disconnected[username];
   delete room.disconnected[username];
+  cancelPendingDisconnectRemoval(room, username);
   return { ok: true, room, wasDisconnected };
 }
 
@@ -596,6 +603,11 @@ function checkDisconnectTimeouts() {
       if (now - disconnectedAt <= DISCONNECT_TIMEOUT) continue;
       const engine = room.game;
       const p = engine.getPlayer(username);
+
+      // 配牌时断线者已经自动配牌，必须留在本手中参加比牌；局后由 server 统一归档移出。
+      if (shouldDeferDisconnectTimeout(room, username, s.phase)) {
+        continue;
+      }
 
       // 对局中：先自动弃牌
       if (p && !p.folded && s.activeIds.includes(username) &&

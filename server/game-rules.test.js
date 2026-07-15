@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { GameEngine, DECK, compareSplit, evalCombo } = require('./game');
+const { GameEngine, DECK, compareCombo, compareSplit, evalCombo } = require('./game');
 const { resolveAllInShowdown } = require('./betting-flow');
 
 function makeSeat(username, buyIn) {
@@ -107,6 +107,56 @@ function run(name, fn) {
     throw error;
   }
 }
+
+/* ========== 已确认牌型规则 ========== */
+
+run('Q or 2 with either color 7 is 官九', () => {
+  for (const seven of ['r71', 'r72', 'b71', 'b72']) {
+    assert.strictEqual(evalCombo(cardById('rQ1'), cardById(seven)).name, '天官九');
+    assert.strictEqual(evalCombo(cardById('r21'), cardById(seven)).name, '地官九');
+  }
+  assert.ok(
+    compareCombo(
+      evalCombo(cardById('rQ1'), cardById('r71')),
+      evalCombo(cardById('r21'), cardById('b71')),
+    ) > 0,
+  );
+});
+
+run('two red 7s are a pair, while red 7 plus black 7 is 双花七', () => {
+  const redPair = evalCombo(cardById('r71'), cardById('r72'));
+  assert.strictEqual(redPair.name, '膏药一对');
+  assert.strictEqual(redPair.level, 90);
+
+  const mixed = evalCombo(cardById('r71'), cardById('b71'));
+  assert.strictEqual(mixed.name, '双花七');
+  assert.strictEqual(mixed.points, 4);
+});
+
+run('joker never forms a pair with a six-point card', () => {
+  for (const six of ['r61', 'r62', 'b61', 'b62']) {
+    assert.notStrictEqual(evalCombo(cardById('joker'), cardById(six)).level, 90);
+  }
+});
+
+run('same display name is exactly tied and all zero-point hands tie', () => {
+  const redSeven = evalCombo(cardById('rQ1'), cardById('r71'));
+  const blackSeven = evalCombo(cardById('rQ2'), cardById('b72'));
+  assert.strictEqual(redSeven.name, blackSeven.name);
+  assert.strictEqual(compareCombo(redSeven, blackSeven), 0);
+
+  const zeroA = evalCombo(cardById('r41'), cardById('r61'));
+  const zeroB = evalCombo(cardById('bJ1'), cardById('b91'));
+  assert.strictEqual(zeroA.points, 0);
+  assert.strictEqual(zeroB.points, 0);
+  assert.strictEqual(compareCombo(zeroA, zeroB), 0);
+});
+
+run('red 2 plus black 9 is 地九王 at one point', () => {
+  const combo = evalCombo(cardById('r21'), cardById('b91'));
+  assert.strictEqual(combo.name, '地九王');
+  assert.strictEqual(combo.points, 1);
+});
 
 /* ========== 基础开局 / 轮转 ========== */
 
@@ -1107,11 +1157,18 @@ run('scenario 1: linear strength, tiered stake pass-down', () => {
   assert.ok(compareSplit(engine.state.splits.p2, engine.state.splits.p3) > 0);
   assert.ok(compareSplit(engine.state.splits.p1, engine.state.splits.p3) > 0);
 
-  engine.doCompare();
+  const result = engine.doCompare();
   // 甲+100（乙丙各50）+底池10；乙吃丙剩70付甲50净+20；丙-120
   // p1:140+50refund+50+50+10=300；p2:80+70+50refund?=220；p3:80
   assert.deepStrictEqual([p1.pot, p2.pot, p3.pot], [300, 220, 80]);
   assert.strictEqual(engine.state.potPi, 0);
+  assert.deepStrictEqual(result.winnerUsers, ['p1', 'p2']);
+  assert.deepStrictEqual(result.transfers, [
+    { kind: 'stake', from: 'p2', to: 'p1', amount: 50 },
+    { kind: 'stake', from: 'p3', to: 'p1', amount: 50 },
+    { kind: 'stake', from: 'p3', to: 'p2', amount: 70 },
+    { kind: 'pot', from: null, to: 'p1', amount: 10 },
+  ]);
 });
 
 
@@ -1224,6 +1281,32 @@ run('scenario 9: two-way tie — each reclaim shout; tail wins pot', () => {
   assert.strictEqual(compareSplit(engine.state.splits.p1, engine.state.splits.p2), 0);
   engine.doCompare();
   assert.deepStrictEqual([p1.pot, p2.pot], [190, 260]);
+});
+
+run('exact tie records every pot recipient as winner even when banker net is zero', () => {
+  const engine = makeEngine([100, 100, 100]);
+  const p1 = player(engine, 'p1');
+  const p2 = player(engine, 'p2');
+  player(engine, 'p3').folded = true;
+  engine.state.activeIds = ['p1', 'p2'];
+  engine.state.potPi = 20;
+  p1.pot = 80; p1.committed = 10; p1.roundStartPot = 100;
+  p2.pot = 90; p2.committed = 10; p2.roundStartPot = 100;
+  forceDocSplit(engine, 'p1', ['rQ1', 'b81'], ['b101', 'b91']);
+  forceDocSplit(engine, 'p2', ['rQ2', 'b82'], ['b102', 'b92']);
+
+  assert.strictEqual(compareSplit(engine.state.splits.p1, engine.state.splits.p2), 0);
+  const result = engine.doCompare();
+
+  assert.deepStrictEqual([p1.pot, p2.pot], [100, 110]);
+  assert.deepStrictEqual(result.winnerUsers, ['p1', 'p2']);
+  assert.strictEqual(result.results.p1.lastDelta, 0);
+  assert.strictEqual(result.results.p1.receivedAmount, 10);
+  assert.strictEqual(result.results.p2.receivedAmount, 10);
+  assert.deepStrictEqual(result.transfers, [
+    { kind: 'pot', from: null, to: 'p1', amount: 10 },
+    { kind: 'pot', from: null, to: 'p2', amount: 10 },
+  ]);
 });
 
 run('scenario 10: tiny knock still takes full pot uncapped', () => {

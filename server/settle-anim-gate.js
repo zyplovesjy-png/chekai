@@ -19,6 +19,16 @@ function settleAnimBaseDelayMs(reason) {
 function estimateSettleChipAnimMs(compareResult) {
   if (!compareResult) return 0;
   if (compareResult.reason === 'rest_cross') return 0;
+  if (Array.isArray(compareResult.transfers)) {
+    const count = compareResult.transfers.filter((transfer) => (
+      transfer?.to && Number(transfer.amount) > 0
+    )).length;
+    if (count === 0) return 0;
+    const base = settleAnimBaseDelayMs(compareResult.reason);
+    return base + SEAT_STAGGER_MS * Math.max(0, count - 1) + CHIP_FLY_MS + 80;
+  }
+
+  // 兼容部署切换期间的旧结果。
   const winner = compareResult.winner;
   if (!winner) return 0;
   const results = compareResult.results || {};

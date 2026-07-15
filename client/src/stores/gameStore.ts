@@ -59,6 +59,14 @@ export interface PotSplitInfo {
 
 export interface CompareResult {
   winner: string | null;
+  /** 本手所有真实收到筹码的玩家；可能多人，也可能净输赢为 0。 */
+  winnerUsers?: string[];
+  transfers?: Array<{
+    kind: 'pot' | 'stake';
+    from: string | null;
+    to: string;
+    amount: number;
+  }>;
   results?: Record<string, {
     wins: number;
     losses: number;
@@ -66,6 +74,7 @@ export interface CompareResult {
     headName: string;
     tailName: string;
     lastDelta: number;
+    receivedAmount?: number;
   }>;
   ranked?: string[];
   alone?: boolean;
@@ -104,6 +113,8 @@ export interface RoundPlayerRecord {
   hand: Card[];
   split: { head: Card[]; tail: Card[]; headName: string; tailName: string } | null;
   lastDelta: number;
+  receivedAmount?: number;
+  isWinner?: boolean;
   wins: number;
   losses: number;
   ties: number;
@@ -117,6 +128,7 @@ export interface RoundRecord {
   bankerUsername: string;
   players: RoundPlayerRecord[];
   winner: string | null;
+  winnerUsers?: string[];
   endReason?: string | null;
 }
 

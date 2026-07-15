@@ -23,6 +23,10 @@ const {
 const { settlePlayerChips, archivePlayerOrSeat, bumpInitialBuyIn } = require('./chip-ledger');
 const { getRoomExitBlockReason } = require('./room-exit-rules');
 const {
+  autoSplitOnSelectingDisconnect,
+  cancelPendingDisconnectRemoval,
+} = require('./selecting-disconnect');
+const {
   beginSettleAnimGate,
   clearSettleAnimGate,
   ackSettleAnimDone,
@@ -508,6 +512,8 @@ function resumeGame(room) {
   if (room.heldNextRound || s?.phase === 'done') {
     room.heldNextRound = false;
     startNextRoundAuto(room);
+  } else if (s?.phase === 'selecting') {
+    finishSelectingIfNeededAfterSanhua(room, room.game);
   }
   return { ok: true };
 }
@@ -927,7 +933,12 @@ function startNextRoundAuto(room, opts = {}) {
     return;
   }
 
-  engine.rotateBanker();
+  if (room.keepRebuiltBankerForNextRound) {
+    // 本手庄家在配牌断线后被移出；rebuild 已选好其下一家，避免再轮一次而跳庄。
+    room.keepRebuiltBankerForNextRound = false;
+  } else {
+    engine.rotateBanker();
+  }
   // 轮庄不再单独播报；下一局状态里的 bankerUsername /「庄」标签即可
   room.gameRound++;
   if (engine.startNewRound()) {
@@ -1537,6 +1548,8 @@ wss.on('connection', (ws) => {
       // 清除断线标记
       const wasDisconnected = !!room.disconnected[payload.username];
       delete room.disconnected[payload.username];
+      // 比牌完成前成功重连：取消本手结束后的归档移出。
+      cancelPendingDisconnectRemoval(room, payload.username);
       broadcastRoom(room);
 
       // 对局已结束：补发结算，避免刷新后卡在空桌
@@ -1910,6 +1923,13 @@ wss.on('connection', (ws) => {
       if (s.phase !== 'selecting') return;
       const p = engine.getPlayer(ws.username);
       if (!p) return;
+      // 每人本手只能确认一次；断线时生成的自动配牌也不会在重连后被覆盖。
+      if (s.splits[ws.username]) {
+        try {
+          ws.send(JSON.stringify({ type: 'game_private', state: engine.getPrivateState(ws.username) }));
+        } catch (_) { /* ignore */ }
+        return;
+      }
 
       // 配牌即表示放弃敲后补发的三花摊牌机会
       engine.declineSanhuaOffer(p);
@@ -1930,31 +1950,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'game_private', state: engine.getPrivateState(ws.username) }));
       } catch (_) { /* ignore */ }
 
-      const allDone = s.activeIds.every(id => {
-        const pl = engine.getPlayer(id);
-        return pl && (pl.folded || s.splits[id]);
-      });
-
-      if (allDone) {
-        s.phase = 'comparing';
-        broadcastRoundState(room);
-        setTimeout(() => {
-          const log = getLogger(room);
-          const snapshotBefore = log?.snapshot(engine);
-          const compareResult = engine.doCompare();
-          log?.logCompare(engine, compareResult, snapshotBefore);
-          log?.logRoundEnd(engine, 'compare');
-          persistHandRecord(room, 'compare');
-          engine.syncSeatBuyIns();
-          // 比牌后统一进 done，由 settle gate / startNextRoundAuto 判断
-          s.phase = 'done';
-          engine.players.forEach(p => {
-            if (p.pot <= 0) p.eliminated = false;
-          });
-          broadcastRoundState(room);
-          finishHandAndScheduleNext(room, compareResult);
-        }, 700);
-      }
+      finishSelectingIfNeededAfterSanhua(room, engine);
     }
 
     if (msg.type === 'settle_anim_done') {
@@ -1972,9 +1968,15 @@ wss.on('connection', (ws) => {
       const room = roomsByCode.get(ws.currentRoomCode);
       if (room) {
         room.ws.delete(ws);
+        // 同账号的新房间连接已接管时，旧连接 close 不应制造一次假断线。
+        const hasReplacementConnection = [...room.ws].some(
+          (client) => client.username === ws.username && client.readyState === 1,
+        );
+        if (hasReplacementConnection) return;
         const nickname = roomMemberName(room, ws.username);
         // 标记断线而非直接移除
         markDisconnected(ws.currentRoomCode, ws.username);
+        autoSplitDisconnectedSelectingPlayer(room, ws.username);
         sendToRoom(room, {
           type: 'player_disconnected',
           username: ws.username,
@@ -2055,19 +2057,21 @@ function buildRoundHistoryRecord(engine, endReason) {
     ? engine.players[bankerIdx].username
     : '';
   const compare = engine.state?.compareResult || null;
-  let winner = compare?.winner || null;
-  if (!winner) {
-    let best = null;
-    for (const p of engine.players) {
-      const d = p.lastDelta || 0;
-      if (d > 0 && (!best || d > best.delta)) best = { username: p.username, delta: d };
-    }
-    winner = best?.username || null;
+  let winnerUsers = Array.isArray(compare?.winnerUsers)
+    ? [...compare.winnerUsers]
+    : [];
+  // 兼容旧内存结果：没有真实收款字段时才按净正数推断。
+  if (!Array.isArray(compare?.winnerUsers)) {
+    winnerUsers = engine.players
+      .filter((p) => (p.lastDelta || 0) > 0)
+      .map((p) => p.username);
   }
+  const winner = winnerUsers[0] || compare?.winner || null;
   return {
     round: engine.room?.gameRound || 0,
     bankerUsername,
     winner,
+    winnerUsers,
     endReason: endReason || compare?.reason || null,
     players: engine.players.map((p) => {
       const sp = splits[p.username];
@@ -2092,6 +2096,8 @@ function buildRoundHistoryRecord(engine, endReason) {
           }
           : null,
         lastDelta: result?.lastDelta ?? (p.lastDelta || 0),
+        receivedAmount: result?.receivedAmount || 0,
+        isWinner: winnerUsers.includes(p.username),
         wins: result?.wins || 0,
         losses: result?.losses || 0,
         ties: result?.ties || 0,
@@ -2106,16 +2112,17 @@ function buildRoundHistoryRecord(engine, endReason) {
 function loadRoundHistoryFromDb(sessionId) {
   const rows = listSessionHandsForHistory(sessionId);
   return rows.map((h) => {
-    let winner = null;
-    let best = null;
-    for (const p of h.players) {
-      if (p.delta > 0 && (!best || p.delta > best.delta)) best = p;
+    let winnerUsers = h.players.filter((p) => p.isWinner).map((p) => p.username);
+    // 旧记录没有 is_winner 数据时，继续按净正数展示。
+    if (winnerUsers.length === 0) {
+      winnerUsers = h.players.filter((p) => p.delta > 0).map((p) => p.username);
     }
-    winner = best?.username || null;
+    const winner = winnerUsers[0] || null;
     return {
       round: h.handNo,
       bankerUsername: h.bankerUsername || '',
       winner,
+      winnerUsers,
       endReason: h.endReason,
       players: h.players.map((p) => ({
         username: p.username,
@@ -2130,6 +2137,8 @@ function loadRoundHistoryFromDb(sessionId) {
           }
           : null,
         lastDelta: p.delta || 0,
+        receivedAmount: p.receivedAmount || 0,
+        isWinner: winnerUsers.includes(p.username),
         wins: 0,
         losses: 0,
         ties: 0,
@@ -2182,6 +2191,8 @@ function persistHandRecord(room, endReason) {
     : null;
   const players = engine.players.map((p) => {
     const sp = splits[p.username];
+    const result = engine.state?.compareResult?.results?.[p.username];
+    const winnerUsers = engine.state?.compareResult?.winnerUsers || [];
     return {
       username: p.username,
       nickname: p.nickname || p.username,
@@ -2189,6 +2200,8 @@ function persistHandRecord(room, endReason) {
       cardsHead: sp?.head ? [...sp.head] : [],
       cardsTail: sp?.tail ? [...sp.tail] : [],
       delta: p.lastDelta || 0,
+      receivedAmount: result?.receivedAmount || 0,
+      isWinner: winnerUsers.includes(p.username),
       folded: !!p.folded,
       rested: !!p.rested || (endReason === 'rest_cross' && !p.folded),
     };
@@ -2232,9 +2245,10 @@ function buildLightCompareResult(engine, { winner, reason }) {
       headName: '',
       tailName: '',
       lastDelta: p.lastDelta,
+      receivedAmount: 0,
     };
   });
-  return {
+  return engine.attachSettlementSummary({
     winner: winner || null,
     alone: !!winner,
     reason,
@@ -2242,7 +2256,7 @@ function buildLightCompareResult(engine, { winner, reason }) {
     // 对局记录用：全员完整手牌（含弃牌者暗牌）
     hands: Object.fromEntries(engine.players.map(p => [p.username, [...(p.hand || [])]])),
     splits: {},
-  };
+  });
 }
 
 function finishHandAndScheduleNext(room, compareResult, { endGameReason = null } = {}) {
@@ -2253,6 +2267,9 @@ function finishHandAndScheduleNext(room, compareResult, { endGameReason = null }
     }
     startNextRoundAuto(room);
   };
+  // 以“比牌结果已经计算完成”为重连截止点：此刻仍断线才执行局后离座归档。
+  // 先发送 game_compare，再广播新座位，客户端可用旧座位坐标准确播放飞筹动画。
+  const removed = removePendingDisconnectedPlayersAfterHand(room);
   const gate = beginSettleAnimGate(room, { compareResult, onReady });
   sendToRoom(room, {
     type: 'game_compare',
@@ -2261,6 +2278,64 @@ function finishHandAndScheduleNext(room, compareResult, { endGameReason = null }
     settleAnimMinMs: gate.minWait,
     settleAnimMaxMs: gate.maxWait,
   });
+  if (removed.length > 0) {
+    broadcastRoom(room);
+    broadcastLobbyUpdate();
+  }
+}
+
+/**
+ * 配牌阶段断线：立即采用服务端自动配牌，但保留玩家参与本手比牌。
+ * pending 标记保留到比牌结果计算完成；期间重连会取消局后离座。
+ */
+function autoSplitDisconnectedSelectingPlayer(room, username) {
+  const outcome = autoSplitOnSelectingDisconnect(room, username);
+  if (!outcome.handled) return false;
+  if (outcome.autoSplit) getLogger(room)?.logSplit(username, outcome.split);
+  if (!room.paused) finishSelectingIfNeededAfterSanhua(room, room.game);
+  return true;
+}
+
+/** 比牌完成后，归档并移出仍未重连玩家的座位队列。 */
+function removePendingDisconnectedPlayersAfterHand(room) {
+  const pending = room?.pendingDisconnectAfterHand;
+  const engine = room?.game;
+  if (!(pending instanceof Set) || pending.size === 0 || !engine) return [];
+
+  const removed = [];
+  const bankerBefore = engine.state?.bankerIdx >= 0
+    ? engine.players[engine.state.bankerIdx]?.username
+    : null;
+  for (const username of [...pending]) {
+    // disconnected 已在重连处理里清除；因此这里没有标记就代表比牌完成前已重连。
+    if (!room.disconnected?.[username]) {
+      pending.delete(username);
+      continue;
+    }
+
+    const player = engine.getPlayer(username);
+    const archived = archivePlayerOrSeat(room, username, {
+      player: player || null,
+      clearSeat: true,
+      rebuild: false,
+    });
+    getLogger(room)?.logDisconnect('post_hand_remove', username, {
+      finalPot: archived?.finalPot,
+    });
+    pending.delete(username);
+    delete room.disconnected[username];
+    removed.push(username);
+  }
+
+  if (removed.length > 0) {
+    engine.rebuildPlayersFromSeats(room.seats);
+    if (bankerBefore && removed.includes(bankerBefore) && engine.players.length > 0) {
+      room.keepRebuiltBankerForNextRound = true;
+    }
+    const seated = room.seats.filter((seat) => seat !== null).length;
+    if (seated < 2) room.pendingEndReason = 'players';
+  }
+  return removed;
 }
 
 function finishSelectingIfNeededAfterSanhua(room, engine) {
@@ -2291,6 +2366,7 @@ function finishSelectingIfNeededAfterSanhua(room, engine) {
     const won = s.potPi;
     winner.pot += won;
     winner.lastDelta += won;
+    engine.recordSettlementTransfer('pot', null, winner.username, won);
     s.potPi = 0;
     // 亮三花不算弃牌，不揍芒；本局已收过的芒清零
     s.restMangoLevel = 0;

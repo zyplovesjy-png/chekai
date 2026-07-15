@@ -200,8 +200,9 @@ export default function RecordDetailPage({ admin = false }: { admin?: boolean })
       const target = (hand.players || []).find((p: any) => p.username === focusUsername);
       if (!target) return false;
       const delta = Number(target.delta) || 0;
-      if (handFilter === 'won') return delta > 0;
-      if (handFilter === 'lost') return delta < 0;
+      const won = !!target.isWinner || target.result === 'win';
+      if (handFilter === 'won') return won;
+      if (handFilter === 'lost') return !won && (target.result === 'loss' || delta < 0);
       return true;
     });
   }, [session, handFilter, focusUsername]);
@@ -377,11 +378,12 @@ export default function RecordDetailPage({ admin = false }: { admin?: boolean })
                   <div className="history-body record-history-body">
                     {hand.players.map((p: any) => {
                       const delta = Number(p.delta) || 0;
+                      const won = !!p.isWinner || p.result === 'win';
                       const isFocus = p.username === focusUsername;
                       return (
                         <div
                           key={p.username}
-                          className={`history-player${delta > 0 ? ' winner' : delta < 0 ? ' loser' : ''}${isFocus ? ' is-me' : ''}`}
+                          className={`history-player${won ? ' winner' : delta < 0 ? ' loser' : ''}${isFocus ? ' is-me' : ''}`}
                         >
                           <div className="history-player-name">
                             {p.nickname}

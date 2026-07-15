@@ -285,6 +285,7 @@ export function useRoomGameController({
         round: game.round,
         bankerUsername: game.bankerUsername || '',
         winner: compareResult?.winner || null,
+        winnerUsers: compareResult?.winnerUsers || (compareResult?.winner ? [compareResult.winner] : []),
         endReason,
         players: game.players.map((player) => {
           const result = compareResult?.results?.[player.username];
@@ -300,6 +301,9 @@ export function useRoomGameController({
               : [...(player.publicCards || [])],
             split: fullSplit || player.split || null,
             lastDelta: result?.lastDelta ?? player.lastDelta,
+            receivedAmount: result?.receivedAmount || 0,
+            isWinner: compareResult?.winnerUsers?.includes(player.username)
+              ?? compareResult?.winner === player.username,
             wins: result?.wins || 0,
             losses: result?.losses || 0,
             ties: result?.ties || 0,
@@ -492,7 +496,7 @@ export function useRoomGameController({
           playWinSound();
         }
 
-        // 结算动画：底池 → 赢家；输家喊价区 → 赢家（简化：有净赢的飞向赢家）
+        // 结算动画严格按服务端真实筹码流向播放，支持多名赢家与净值为 0 的赢家。
         const currentRoom = roomRef.current;
         const { visualSeats: currentVisualSeats } = calcSeatRotation(currentRoom, myUsernameRef.current);
         const visualOf = (username?: string | null) => {
@@ -500,41 +504,75 @@ export function useRoomGameController({
           const physicalIndex = currentRoom?.seats?.findIndex((seat) => seat?.username === username) ?? -1;
           return physicalIndex >= 0 ? currentVisualSeats.indexOf(physicalIndex) : -1;
         };
-        const winnerName = msg.result?.winner as string | undefined;
-        const winnerSeat = visualOf(winnerName);
-        if (winnerSeat >= 0 && msg.result?.reason !== 'rest_cross') {
-          // all_folded：弃牌已 to_pot，只需底池→赢家；再 seat_to_seat 会重复飞一次
-          const baseDelay = settleAnimBaseDelayMs(msg.result?.reason);
-          const foldedOnly = msg.result?.reason === 'all_folded' || msg.result?.reason === 'all_sanhua';
-          setTimeout(() => {
-            setChipAnim({
-              key: Date.now(),
-              kind: 'pot_to_seat',
-              toVisualSeat: winnerSeat,
-              player: winnerName,
-              amount: 20,
-            });
-          }, baseDelay);
-          if (!foldedOnly) {
-            const results = msg.result?.results || {};
-            let delay = baseDelay + SETTLE_ANIM_TIMING.AFTER_POT_TO_WINNER_MS;
-            Object.entries(results).forEach(([uname, r]: [string, any]) => {
-              if (uname === winnerName) return;
-              if ((r?.lastDelta ?? 0) >= 0) return;
-              const fromSeat = visualOf(uname);
-              if (fromSeat < 0) return;
+        const transfers = Array.isArray(msg.result?.transfers)
+          ? [...msg.result.transfers].sort((a: any, b: any) => (
+            (a.kind === 'pot' ? 0 : 1) - (b.kind === 'pot' ? 0 : 1)
+          ))
+          : null;
+        if (transfers && msg.result?.reason !== 'rest_cross') {
+          let delay = settleAnimBaseDelayMs(msg.result?.reason);
+          transfers.forEach((transfer: any, index: number) => {
+            const toSeat = visualOf(transfer?.to);
+            const fromSeat = visualOf(transfer?.from);
+            if ((transfer?.amount ?? 0) > 0 && toSeat >= 0) {
               setTimeout(() => {
-                setChipAnim({
-                  key: Date.now() + fromSeat,
-                  kind: 'seat_to_seat',
-                  fromVisualSeat: fromSeat,
-                  toVisualSeat: winnerSeat,
-                  player: uname,
-                  amount: Math.abs(r.lastDelta || 10),
-                });
+                if (transfer.kind === 'stake' && fromSeat >= 0) {
+                  setChipAnim({
+                    key: Date.now() + index,
+                    kind: 'seat_to_seat',
+                    fromVisualSeat: fromSeat,
+                    toVisualSeat: toSeat,
+                    player: transfer.from,
+                    amount: transfer.amount,
+                  });
+                } else if (transfer.kind === 'pot') {
+                  setChipAnim({
+                    key: Date.now() + index,
+                    kind: 'pot_to_seat',
+                    toVisualSeat: toSeat,
+                    player: transfer.to,
+                    amount: transfer.amount,
+                  });
+                }
               }, delay);
-              delay += SETTLE_ANIM_TIMING.SEAT_STAGGER_MS;
-            });
+            }
+            delay += SETTLE_ANIM_TIMING.SEAT_STAGGER_MS;
+          });
+        } else {
+          // 兼容部署切换期间的旧服务端：仍按单 winner + 净输赢做近似动画。
+          const winnerName = msg.result?.winner as string | undefined;
+          const winnerSeat = visualOf(winnerName);
+          if (winnerSeat >= 0 && msg.result?.reason !== 'rest_cross') {
+            const baseDelay = settleAnimBaseDelayMs(msg.result?.reason);
+            setTimeout(() => {
+              setChipAnim({
+                key: Date.now(),
+                kind: 'pot_to_seat',
+                toVisualSeat: winnerSeat,
+                player: winnerName,
+                amount: 20,
+              });
+            }, baseDelay);
+            if (msg.result?.reason !== 'all_folded' && msg.result?.reason !== 'all_sanhua') {
+              const results = msg.result?.results || {};
+              let delay = baseDelay + SETTLE_ANIM_TIMING.AFTER_POT_TO_WINNER_MS;
+              Object.entries(results).forEach(([uname, r]: [string, any]) => {
+                if (uname === winnerName || (r?.lastDelta ?? 0) >= 0) return;
+                const fromSeat = visualOf(uname);
+                if (fromSeat < 0) return;
+                setTimeout(() => {
+                  setChipAnim({
+                    key: Date.now() + fromSeat,
+                    kind: 'seat_to_seat',
+                    fromVisualSeat: fromSeat,
+                    toVisualSeat: winnerSeat,
+                    player: uname,
+                    amount: Math.abs(r.lastDelta || 10),
+                  });
+                }, delay);
+                delay += SETTLE_ANIM_TIMING.SEAT_STAGGER_MS;
+              });
+            }
           }
         }
 

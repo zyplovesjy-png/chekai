@@ -553,6 +553,8 @@ class GameLogger {
 
     this._debug('compare', {
       winner: compareResult?.winner || null,
+      winnerUsers: compareResult?.winnerUsers || null,
+      transfers: compareResult?.transfers || null,
       alone: !!compareResult?.alone,
       ranked: compareResult?.ranked || null,
       results: compareResult?.results || null,
@@ -564,8 +566,11 @@ class GameLogger {
     });
 
     const lines = ['', '### 比牌结果', ''];
-    if (compareResult?.winner) {
-      lines.push(`赢家：${this._name(compareResult.winner)}${compareResult.alone ? '（独赢）' : ''}`);
+    const winnerUsers = Array.isArray(compareResult?.winnerUsers)
+      ? compareResult.winnerUsers
+      : (compareResult?.winner ? [compareResult.winner] : []);
+    if (winnerUsers.length > 0) {
+      lines.push(`赢家：${winnerUsers.map((username) => this._name(username)).join('、')}${compareResult.alone ? '（独赢）' : ''}`);
     }
     if (compareResult?.results) {
       Object.entries(compareResult.results).forEach(([u, r]) => {

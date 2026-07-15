@@ -44,7 +44,8 @@ const DEFAULT_BUY_IN = 100;
 const DEFAULT_MAX_BET = Number.MAX_SAFE_INTEGER;
 
 const COMBO_RAW = [
-  {a:'rQ', b:'b7', sub:1, pts:9, name:'天官九'},{a:'r2', b:'b7', sub:2, pts:9, name:'地官九'},
+  {a:'rQ', b:'b7', sub:1, pts:9, name:'天官九'},{a:'rQ', b:'r7', sub:1, pts:9, name:'天官九'},
+  {a:'r2', b:'b7', sub:2, pts:9, name:'地官九'},{a:'r2', b:'r7', sub:2, pts:9, name:'地官九'},
   {a:'r8', b:'bJ', sub:3, pts:9, name:'红笼九'},{a:'r4', b:'b5', sub:4, pts:9, name:'和五九'},
   {a:'b10',b:'b9', sub:5, pts:9, name:'梅十九'},{a:'b4', b:'b5', sub:5, pts:9, name:'板五九'},
   {a:'r3', b:'b6', sub:5, pts:9, name:'丁长九'},{a:'bJ', b:'b8', sub:6, pts:9, name:'乌龙九'},
@@ -78,7 +79,7 @@ const COMBO_RAW = [
   {a:'r8', b:'b6', sub:2, pts:4, name:'人十四'},{a:'r4', b:'r10',sub:3, pts:4, name:'和十四'},
   {a:'r4', b:'b10',sub:3, pts:4, name:'和十四'},{a:'b10',b:'b4', sub:4, pts:4, name:'梅十四'},
   {a:'b6', b:'b8', sub:4, pts:4, name:'长十四'},{a:'r3', b:'bJ', sub:5, pts:4, name:'丁斧四'},
-  {a:'r6', b:'b8', sub:5, pts:4, name:'六八四'},{a:'r7', b:'r7', sub:5, pts:4, name:'双花七'},
+  {a:'r6', b:'b8', sub:5, pts:4, name:'六八四'},{a:'r7', b:'b7', sub:5, pts:4, name:'双花七'},
   {a:'b5', b:'b9', sub:6, pts:4, name:'五九四'},
   {a:'rQ', b:'bJ', sub:1, pts:3, name:'天斧三'},{a:'r2', b:'bJ', sub:2, pts:3, name:'地斧三'},
   {a:'r8', b:'b5', sub:3, pts:3, name:'人十三'},{a:'r4', b:'b9', sub:4, pts:3, name:'和十三'},
@@ -140,6 +141,8 @@ function evalCombo(c1, c2) {
 function compareCombo(a, b) {
   if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
   if (a.level !== b.level) return a.level - b.level;
+  // 规则：牌型名称相同即完全同大，不再按组成牌的 order 打破平局。
+  if (a.name && a.name === b.name) return 0;
   if (a.level === 0 && a.sub === 0 && b.sub === 0) return 0;
   // sub 越小越强（天官九 sub1 > 地官九 sub2；天一对 sub1 > 人一对 sub3）
   if (a.sub !== b.sub) return b.sub - a.sub;
@@ -272,6 +275,8 @@ class GameEngine {
       splits: {},
       // 比牌结果
       compareResult: null,
+      // 本手真实筹码流向。退还玩家自己的喊价不计入收入，也不产生赢家。
+      settlementTransfers: [],
       // 玩家不活跃跟踪（超时掉线）
       playerInactivity: {},
     };
@@ -696,6 +701,7 @@ class GameEngine {
     s.activeIds = alive.map(p => p.username);
     s.splits = {};
     s.compareResult = null;
+    s.settlementTransfers = [];
     s.roundHadBet = false;
     s.lastFinalBet = 0;
     s.streetBaseBet = 0;
@@ -970,6 +976,7 @@ class GameEngine {
         const won = s.potPi;
         winner.pot += won;
         winner.lastDelta += won;
+        this.recordSettlementTransfer('pot', null, winner.username, won);
         s.potPi = 0;
         // 揍芒只允许发生在发完两张牌的第一轮：
         // 本轮已经有人下注、最后留下的赢家也有有效喊价，其余玩家实际弃牌。
@@ -1087,6 +1094,52 @@ class GameEngine {
     return byHead[0];
   }
 
+  /** 记录一笔真实的跨账户收入；自己的喊价退回不属于收入。 */
+  recordSettlementTransfer(kind, from, to, amount) {
+    if (!this.state || !to) return null;
+    const value = Math.max(0, Math.floor(Number(amount) || 0));
+    if (value <= 0) return null;
+    if (!Array.isArray(this.state.settlementTransfers)) {
+      this.state.settlementTransfers = [];
+    }
+    const transfer = {
+      kind: kind === 'stake' ? 'stake' : 'pot',
+      from: from || null,
+      to,
+      amount: value,
+    };
+    this.state.settlementTransfers.push(transfer);
+    return transfer;
+  }
+
+  /** 根据真实筹码收入汇总本手所有赢家，并把收入额写回玩家结果。 */
+  getSettlementSummary(results = {}) {
+    const transfers = Array.isArray(this.state?.settlementTransfers)
+      ? this.state.settlementTransfers.map((transfer) => ({ ...transfer }))
+      : [];
+    const received = new Map();
+    const winnerUsers = [];
+    for (const transfer of transfers) {
+      if (!transfer?.to || transfer.amount <= 0) continue;
+      if (!received.has(transfer.to)) winnerUsers.push(transfer.to);
+      received.set(transfer.to, (received.get(transfer.to) || 0) + transfer.amount);
+    }
+    for (const [username, result] of Object.entries(results || {})) {
+      if (result) result.receivedAmount = received.get(username) || 0;
+    }
+    return { winnerUsers, transfers, received };
+  }
+
+  attachSettlementSummary(result) {
+    const target = result || {};
+    const summary = this.getSettlementSummary(target.results || {});
+    target.winnerUsers = summary.winnerUsers;
+    target.transfers = summary.transfers;
+    // 旧客户端仍读取 winner；这里取第一位真实收款人，而不是牌面排序第一名。
+    target.winner = summary.winnerUsers[0] || null;
+    return target;
+  }
+
   // ---- 比牌 ----
   doCompare() {
     const s = this.state;
@@ -1111,6 +1164,7 @@ class GameEngine {
         headName: sp.headEval.name,
         tailName: sp.tailEval.name,
         lastDelta: 0,
+        receivedAmount: 0,
       };
       p.lastDelta = 0;
     });
@@ -1118,31 +1172,36 @@ class GameEngine {
     if (active.length === 0) {
       s.potPi = 0;
       this.players.forEach(p => { p.pot = Math.max(0, p.pot + p.lastDelta); });
-      s.compareResult = {
+      s.compareResult = this.attachSettlementSummary({
         winner: null,
         results,
         hands: Object.fromEntries(this.players.map(p => [p.username, [...(p.hand || [])]])),
         splits: {},
-      };
+      });
       return s.compareResult;
     }
 
     if (active.length === 1) {
       // 唯一幸存者：喊价退还 + 底池归他
       this.refundCommitment(active[0]);
-      active[0].pot += s.potPi;
+      const won = s.potPi;
+      active[0].pot += won;
+      this.recordSettlementTransfer('pot', null, active[0].username, won);
       s.potPi = 0;
       this.players.forEach(p => {
         const start = p.roundStartPot != null ? p.roundStartPot : p.pot;
         p.lastDelta = p.pot - start;
         if (!results[p.username]) {
-          results[p.username] = { wins: 0, losses: 0, ties: 0, headName: '', tailName: '', lastDelta: p.lastDelta };
+          results[p.username] = {
+            wins: 0, losses: 0, ties: 0,
+            headName: '', tailName: '', lastDelta: p.lastDelta, receivedAmount: 0,
+          };
         } else {
           results[p.username].lastDelta = p.lastDelta;
         }
         if (p.pot <= 0 && !p.eliminated) p.eliminated = true;
       });
-      const result = {
+      const result = this.attachSettlementSummary({
         winner: active[0].username,
         alone: true,
         reason: 'compare',
@@ -1156,7 +1215,7 @@ class GameEngine {
             tailName: sp.tailEval?.name || '',
           }]),
         ),
-      };
+      });
       s.compareResult = result;
       return result;
     }
@@ -1235,15 +1294,19 @@ class GameEngine {
         if (share <= 0) return;
         w.lastDelta += share;
         results[w.username].lastDelta += share;
+        this.recordSettlementTransfer('pot', null, w.username, share);
         remaining -= share;
       });
     };
 
-    const credit = (player, amount) => {
+    const credit = (player, amount, transfer = null) => {
       const value = Math.max(0, Math.floor(amount || 0));
       if (value <= 0) return;
       player.lastDelta += value;
       results[player.username].lastDelta += value;
+      if (transfer) {
+        this.recordSettlementTransfer(transfer.kind, transfer.from, player.username, value);
+      }
     };
 
     // 梯队传递式分配输家最终比价（1.2）
@@ -1312,7 +1375,7 @@ class GameEngine {
         const edible = Math.min(remaining, tierCap);
         const { got, leftover } = allocateWithinTier(tier, edible);
         for (const w of tier) {
-          credit(w, got.get(w.username) || 0);
+          credit(w, got.get(w.username) || 0, { kind: 'stake', from: loser.username });
         }
         remaining = remaining - edible + leftover;
       }
@@ -1349,6 +1412,7 @@ class GameEngine {
           wins: 0, losses: 0, ties: 0,
           headName: '', tailName: '',
           lastDelta: p.lastDelta,
+          receivedAmount: 0,
         };
       } else {
         results[p.username].lastDelta = p.lastDelta;
@@ -1360,7 +1424,7 @@ class GameEngine {
       if (p.pot <= 0 && !p.eliminated) p.eliminated = true;
     });
 
-    const result = {
+    const result = this.attachSettlementSummary({
       winner: ranked[0]?.username || null,
       reason: 'compare',
       results,
@@ -1375,7 +1439,7 @@ class GameEngine {
           tailName: sp.tailEval?.name || '',
         }]),
       ),
-    };
+    });
     s.compareResult = result;
     return result;
   }

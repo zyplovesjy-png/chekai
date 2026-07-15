@@ -316,7 +316,11 @@ export function HistoryDrawer({ roundHistory, open: controlledOpen, onOpenChange
               {rec.players.map((p) => (
                 <div
                   key={p.username}
-                  className={`history-player${p.lastDelta > 0 ? ' winner' : p.lastDelta < 0 ? ' loser' : ''}`}
+                  className={`history-player${
+                    (rec.winnerUsers?.includes(p.username) ?? p.isWinner ?? p.lastDelta > 0)
+                      ? ' winner'
+                      : p.lastDelta < 0 ? ' loser' : ''
+                  }`}
                 >
                   <div className="history-player-name">
                     {p.nickname}

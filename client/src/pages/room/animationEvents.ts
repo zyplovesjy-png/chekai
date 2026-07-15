@@ -28,10 +28,21 @@ export function settleAnimBaseDelayMs(reason?: string | null): number {
 export function estimateSettleChipAnimMs(result?: {
   reason?: string | null;
   winner?: string | null;
+  transfers?: Array<{ kind?: string; from?: string | null; to?: string; amount?: number }>;
   results?: Record<string, { lastDelta?: number } | null>;
 } | null): number {
   if (!result) return 0;
   if (result.reason === 'rest_cross') return 0;
+  if (Array.isArray(result.transfers)) {
+    const count = result.transfers.filter((transfer) => (
+      !!transfer?.to && (transfer.amount ?? 0) > 0
+    )).length;
+    if (count === 0) return 0;
+    const base = settleAnimBaseDelayMs(result.reason);
+    return base + SEAT_STAGGER_MS * Math.max(0, count - 1) + ANIMATION_MS.chipFly + 80;
+  }
+
+  // 兼容部署切换期间的旧服务端结果。
   const winner = result.winner;
   if (!winner) return 0;
   const results = result.results || {};
